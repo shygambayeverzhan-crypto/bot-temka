@@ -38,11 +38,31 @@ class Deposit(StatesGroup):
     amount = State()
     receipt = State()
 
-menu = ReplyKeyboardBuilder()
-for label in ["💳 Пополнить баланс", "💰 Мой баланс", "📜 История", "💳 Реквизиты", "🌐 Язык"]:
-    menu.button(text=label)
-menu.adjust(2, 2, 1)
-MAIN_KB = menu.as_markup(resize_keyboard=True)
+def home_kb():
+    b = InlineKeyboardBuilder()
+    b.button(text="💳 Пополнить баланс", callback_data="menu:deposit")
+    b.button(text="💰 Баланс", callback_data="menu:balance")
+    b.button(text="📜 История", callback_data="menu:history")
+    b.button(text="💳 Реквизиты", callback_data="menu:wallets")
+    b.button(text="🌐 Язык", callback_data="menu:language")
+    b.button(text="🔄 Обновить", callback_data="menu:home")
+    b.adjust(1, 2, 2, 1)
+    return b.as_markup()
+
+def back_kb():
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ Главное меню", callback_data="menu:home")
+    return b.as_markup()
+
+def balance_kb():
+    b = InlineKeyboardBuilder()
+    b.button(text="💳 Пополнить", callback_data="menu:deposit")
+    b.button(text="📜 История", callback_data="menu:history")
+    b.button(text="⬅️ Главное меню", callback_data="menu:home")
+    b.adjust(1, 2)
+    return b.as_markup()
+
+MAIN_KB = home_kb()
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -89,20 +109,135 @@ async def notify_user(tg_id, text):
     except Exception:
         logging.exception("notify_user failed")
 
+def home_text(u):
+    name = u.get("first_name") or "друг"
+    balance_value = money(u["balance"])
+    return (
+        f"👋 <b>4% TRADER</b>\n"
+        f"<i>Ваш личный финансовый кабинет</i>\n\n"
+        f"Привет, <b>{name}</b>!\n\n"
+        f"💰 <b>Баланс</b>\n"
+        f"<code>{balance_value} ₸</code>\n\n"
+        f"🟢 <b>Аккаунт активен</b>\n"
+        f"Выберите действие ниже."
+    )
+
+async def show_home(target, tg):
+    u = ensure_user(tg)
+    text = home_text(u)
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=home_kb())
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=home_kb())
+
+async def start_deposit_flow(message, state, tg):
+    u = ensure_user(tg)
+    if u["is_blocked"]:
+        await message.answer("⛔ <b>Доступ ограничен.</b>", reply_markup=back_kb())
+        return
+    if open_order(u["id"]):
+        await message.answer(
+            "⚠️ <b>У вас уже есть открытая заявка.</b>\n\n"
+            "Завершите текущую заявку перед созданием новой.",
+            reply_markup=back_kb(),
+        )
+        return
+    if not active_wallet():
+        await message.answer(
+            "⚠️ <b>Реквизиты пока не настроены.</b>\n\n"
+            "Пополнение временно недоступно.",
+            reply_markup=back_kb(),
+        )
+        return
+    await state.set_state(Deposit.amount)
+    await message.answer(
+        "💳 <b>Пополнение баланса</b>\n\n"
+        "Введите сумму в тенге.\n"
+        "Минимум: <b>100 ₸</b>\n"
+        "Максимум: <b>10 000 000 ₸</b>\n\n"
+        "Напишите, например: <code>50000</code>",
+        reply_markup=back_kb(),
+    )
+
+@dp.callback_query(F.data == "menu:home")
+async def menu_home(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await show_home(call, call.from_user)
+
+@dp.callback_query(F.data == "menu:balance")
+async def menu_balance(call: CallbackQuery):
+    u = ensure_user(call.from_user)
+    await call.message.edit_text(
+        f"💰 <b>Ваш баланс</b>\n\n"
+        f"<code>{money(u['balance'])} ₸</code>\n\n"
+        f"Средства доступны после подтверждения администратором.",
+        reply_markup=balance_kb(),
+    )
+    await call.answer()
+
+@dp.callback_query(F.data == "menu:history")
+async def menu_history(call: CallbackQuery):
+    u = ensure_user(call.from_user)
+    rows = db.table("balance_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(8).execute().data or []
+    if not rows:
+        text = "📜 <b>История операций</b>\n\nПока операций нет."
+    else:
+        lines = ["📜 <b>История операций</b>", ""]
+        for x in rows:
+            amount = Decimal(str(x["amount"]))
+            sign = "+" if amount > 0 else ""
+            date = str(x["created_at"]).replace("T", " ")[:16]
+            label = {"deposit": "Пополнение", "withdrawal": "Вывод", "adjustment": "Корректировка"}.get(x["type"], x["type"])
+            lines.append(f"<code>{date}</code>  <b>{sign}{money(amount)} ₸</b>\n{label}")
+        text = "\n".join(lines)
+    await call.message.edit_text(text, reply_markup=back_kb())
+    await call.answer()
+
+@dp.callback_query(F.data == "menu:wallets")
+async def menu_wallets(call: CallbackQuery):
+    rows = db.table("wallets").select("*").eq("is_active", True).order("sort_order").execute().data or []
+    if not rows:
+        text = "💳 <b>Реквизиты</b>\n\n⚠️ Активных реквизитов сейчас нет."
+    else:
+        parts = ["💳 <b>Реквизиты для пополнения</b>", ""]
+        for x in rows:
+            parts.append(
+                f"🏦 <b>{x['bank_name']}</b>\n"
+                f"<code>{x['requisites']}</code>\n"
+                f"Получатель: <b>{x.get('holder_name') or '—'}</b>\n"
+            )
+        text = "\n".join(parts)
+    await call.message.edit_text(text, reply_markup=back_kb())
+    await call.answer()
+
+@dp.callback_query(F.data == "menu:language")
+async def menu_language(call: CallbackQuery):
+    await call.message.edit_text(
+        "🌐 <b>Язык</b>\n\nСейчас доступен русский язык.",
+        reply_markup=back_kb(),
+    )
+    await call.answer()
+
+@dp.callback_query(F.data == "menu:deposit")
+async def menu_deposit(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await start_deposit_flow(call.message, state, call.from_user)
+
 @dp.message(Command("start"))
 async def start(message: Message, state: FSMContext):
     await state.clear()
     u = ensure_user(message.from_user)
     if u["is_blocked"]:
-        await message.answer("⛔ Доступ ограничен.")
+        await message.answer("⛔ <b>Доступ ограничен.</b>")
         return
-    extra = "\n\n👨‍💻 Админ: /admin" if is_admin(message.from_user.id) else ""
-    await message.answer(f"👋 <b>Добро пожаловать!</b>\n\n💰 Баланс: <b>{money(u['balance'])} ₸</b>{extra}", reply_markup=MAIN_KB)
+    extra = "\n\n👨‍💻 <b>Админ:</b> /admin" if is_admin(message.from_user.id) else ""
+    await message.answer(home_text(u) + extra, reply_markup=home_kb())
 
 @dp.message(F.text == "💰 Мой баланс")
 async def balance(message: Message):
     u = ensure_user(message.from_user)
-    await message.answer(f"💰 Ваш баланс: <b>{money(u['balance'])} ₸</b>", reply_markup=MAIN_KB)
+    await message.answer(f"💰 <b>Ваш баланс</b>\n\n<code>{money(u['balance'])} ₸</code>", reply_markup=balance_kb())
 
 @dp.message(F.text == "📜 История")
 async def history(message: Message):
@@ -110,44 +245,33 @@ async def history(message: Message):
     r = db.table("balance_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(10).execute()
     rows = r.data or []
     if not rows:
-        await message.answer("📜 История пока пуста.", reply_markup=MAIN_KB)
+        await message.answer("📜 <b>История операций</b>\n\nПока операций нет.", reply_markup=back_kb())
         return
-    lines = ["📜 <b>Последние операции</b>"]
+    lines = ["📜 <b>История операций</b>", ""]
     for x in rows:
         amount = Decimal(str(x["amount"]))
         sign = "+" if amount > 0 else ""
         lines.append(f"{str(x['created_at']).replace('T',' ')[:16]} — {sign}{money(amount)} ₸ — {x['type']}")
-    await message.answer("\n".join(lines), reply_markup=MAIN_KB)
+    await message.answer("\n".join(lines), reply_markup=back_kb())
 
 @dp.message(F.text == "💳 Реквизиты")
 async def wallets(message: Message):
     rows = db.table("wallets").select("*").eq("is_active", True).order("sort_order").execute().data or []
     if not rows:
-        await message.answer("⚠️ Активных реквизитов нет.", reply_markup=MAIN_KB)
+        await message.answer("💳 <b>Реквизиты</b>\n\n⚠️ Активных реквизитов сейчас нет.", reply_markup=back_kb())
         return
-    text = "💳 <b>Актуальные реквизиты</b>\n"
+    text = "💳 <b>Реквизиты для пополнения</b>\n"
     for x in rows:
         text += f"\n<b>{x['title']}</b>\n{x['bank_name']}\n<code>{x['requisites']}</code>\nПолучатель: {x.get('holder_name') or '—'}\n"
-    await message.answer(text, reply_markup=MAIN_KB)
+    await message.answer(text, reply_markup=back_kb())
 
 @dp.message(F.text == "🌐 Язык")
 async def language(message: Message):
-    await message.answer("🌐 Сейчас доступен русский язык.", reply_markup=MAIN_KB)
+    await message.answer("🌐 <b>Язык</b>\n\nСейчас доступен русский язык.", reply_markup=back_kb())
 
 @dp.message(F.text == "💳 Пополнить баланс")
 async def deposit_start(message: Message, state: FSMContext):
-    u = ensure_user(message.from_user)
-    if u["is_blocked"]:
-        await message.answer("⛔ Доступ ограничен.")
-        return
-    if open_order(u["id"]):
-        await message.answer("⚠️ У вас уже есть открытая заявка. Завершите её перед созданием новой.")
-        return
-    if not active_wallet():
-        await message.answer("⚠️ Администратор ещё не настроил реквизиты.")
-        return
-    await state.set_state(Deposit.amount)
-    await message.answer("💳 Введите сумму в ₸, например <b>50000</b>.\n\n/cancel — отмена")
+    await start_deposit_flow(message, state, message.from_user)
 
 @dp.message(Deposit.amount)
 async def deposit_amount(message: Message, state: FSMContext):
@@ -158,10 +282,10 @@ async def deposit_amount(message: Message, state: FSMContext):
     try:
         amount = Decimal(raw)
     except InvalidOperation:
-        await message.answer("❌ Введите корректную сумму.")
+        await message.answer("❌ <b>Неверная сумма.</b>\n\nВведите число, например <code>50000</code>.")
         return
     if amount < 100 or amount > 10_000_000:
-        await message.answer("❌ Допустимо от 100 до 10 000 000 ₸.")
+        await message.answer("❌ <b>Сумма вне диапазона.</b>\n\nВведите от <b>100 ₸</b> до <b>10 000 000 ₸</b>.")
         return
     u = ensure_user(message.from_user)
     wallet = active_wallet()
@@ -181,11 +305,12 @@ async def deposit_amount(message: Message, state: FSMContext):
     b.button(text="❌ Отменить", callback_data=f"cancel:{order['id']}")
     b.adjust(1)
     await message.answer(
-        f"💳 <b>Заявка #{order['order_number']}</b>\n\n"
-        f"Сумма: <b>{money(amount)} ₸</b>\n\n"
-        f"<b>{wallet['bank_name']}</b>\n<code>{wallet['requisites']}</code>\n"
-        f"Получатель: <b>{wallet.get('holder_name') or '—'}</b>\n\n"
-        f"⏳ Реквизиты актуальны 10 минут.",
+        f"🧾 <b>Заявка #{order['order_number']}</b>\n\n"
+        f"💰 Сумма: <b>{money(amount)} ₸</b>\n"
+        f"🏦 Банк: <b>{wallet['bank_name']}</b>\n"
+        f"👤 Получатель: <b>{wallet.get('holder_name') or '—'}</b>\n\n"
+        f"<b>Реквизиты</b>\n<code>{wallet['requisites']}</code>\n\n"
+        f"⏳ Действуют <b>10 минут</b>. После оплаты отправьте чек.",
         reply_markup=b.as_markup()
     )
 
@@ -206,7 +331,7 @@ async def receipt_request(call: CallbackQuery, state: FSMContext):
         return
     await state.set_state(Deposit.receipt)
     await state.update_data(receipt_order_id=order_id)
-    await call.message.answer("📎 Отправьте чек: фото или PDF/документ.")
+    await call.message.answer("📎 <b>Отправьте чек об оплате</b>\n\nПодойдёт фото или PDF-документ.", reply_markup=back_kb())
     await call.answer()
 
 async def store_receipt(message, state):
@@ -232,7 +357,7 @@ async def receipt_photo(message: Message, state: FSMContext):
     if not order:
         await message.answer("❌ Не удалось принять чек.")
         return
-    await message.answer("✅ Чек получен. Заявка отправлена администратору.", reply_markup=MAIN_KB)
+    await message.answer("✅ <b>Чек получен.</b>\n\nЗаявка передана на проверку. После подтверждения сумма будет зачислена на баланс.", reply_markup=home_kb())
     await notify_admins(order["id"])
 
 @dp.message(Deposit.receipt, F.document)
@@ -241,7 +366,7 @@ async def receipt_document(message: Message, state: FSMContext):
     if not order:
         await message.answer("❌ Не удалось принять чек.")
         return
-    await message.answer("✅ Чек получен. Заявка отправлена администратору.", reply_markup=MAIN_KB)
+    await message.answer("✅ Чек получен. Заявка отправлена администратору.", reply_markup=home_kb())
     await notify_admins(order["id"])
 
 async def notify_admins(order_id):
@@ -344,7 +469,7 @@ async def cancel_order(call: CallbackQuery):
 @dp.message(Command("cancel"))
 async def cancel_cmd(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Операция отменена.", reply_markup=MAIN_KB)
+    await message.answer("↩️ <b>Операция отменена.</b>", reply_markup=home_kb())
 
 @dp.message(Command("claim_admin"))
 async def claim_admin(message: Message):
