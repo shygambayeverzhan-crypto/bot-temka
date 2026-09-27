@@ -88,9 +88,34 @@ AUTH_COPY = {
 AUTH_KEYS = ("choose","welcome","unauth","prompt","login","change","docs")
 AUTH_PROMPTS = {
 "ru":{"login":"Введите ваш логин:","password":"Введите пароль. Сообщение с паролем будет удалено после проверки.","failed":"Неверный логин или пароль. Попробуйте ещё раз.","success":"✅ Вход выполнен.","docs":"Доступ выдаёт администратор. Не пересылайте пароль. Сообщение с паролем удаляется после проверки."},
-"kk":{"login":"Логиніңізді енгізіңіз:","password":"Парольді енгізіңіз. Тексеруден кейін хабарлама жойылады.","failed":"Логин немесе пароль қате. Қайталап көріңіз.","success":"✅ Сіз жүйеге кірдіңіз.","docs":"Қол жеткізу деректерін әкімші береді. Парольді басқа адамдарға жібермеңіз."},
 "en":{"login":"Enter your login:","password":"Enter your password. This message will be deleted after verification.","failed":"Incorrect login or password. Please try again.","success":"✅ You are signed in.","docs":"Access credentials are issued by an administrator. Do not share your password. The password message is deleted after verification."},
+"uk":{"login":"Введіть ваш логін:","password":"Введіть пароль. Повідомлення з паролем буде видалено після перевірки.","failed":"Неправильний логін або пароль. Спробуйте ще раз.","success":"✅ Вхід виконано.","docs":"Дані для входу видає адміністратор. Не передавайте пароль іншим."},
+"kk":{"login":"Логиніңізді енгізіңіз:","password":"Құпиясөзді енгізіңіз. Тексерілгеннен кейін хабарлама жойылады.","failed":"Логин немесе құпиясөз қате. Қайталап көріңіз.","success":"✅ Жүйеге кірдіңіз.","docs":"Кіру деректерін әкімші береді. Құпиясөзді ешкімге жібермеңіз."},
+"pl":{"login":"Wpisz swój login:","password":"Wpisz hasło. Wiadomość z hasłem zostanie usunięta po sprawdzeniu.","failed":"Nieprawidłowy login lub hasło. Spróbuj ponownie.","success":"✅ Zalogowano.","docs":"Dane dostępowe wydaje administrator. Nie udostępniaj hasła."},
+"ro":{"login":"Introduceți numele de utilizator:","password":"Introduceți parola. Mesajul va fi șters după verificare.","failed":"Utilizator sau parolă incorectă. Încercați din nou.","success":"✅ Autentificare reușită.","docs":"Datele de acces sunt oferite de administrator. Nu partajați parola."},
+"tr":{"login":"Kullanıcı adınızı girin:","password":"Parolanızı girin. Doğrulamadan sonra mesaj silinir.","failed":"Kullanıcı adı veya parola yanlış. Tekrar deneyin.","success":"✅ Giriş başarılı.","docs":"Giriş bilgileri yönetici tarafından verilir. Parolanızı paylaşmayın."},
+"es":{"login":"Introduce tu usuario:","password":"Introduce tu contraseña. El mensaje se eliminará tras verificarla.","failed":"Usuario o contraseña incorrectos. Inténtalo de nuevo.","success":"✅ Sesión iniciada.","docs":"El administrador proporciona las credenciales. No compartas tu contraseña."},
+"de":{"login":"Geben Sie Ihren Login ein:","password":"Geben Sie Ihr Passwort ein. Die Nachricht wird nach der Prüfung gelöscht.","failed":"Login oder Passwort falsch. Bitte erneut versuchen.","success":"✅ Anmeldung erfolgreich.","docs":"Zugangsdaten erhalten Sie vom Administrator. Teilen Sie Ihr Passwort nicht."},
+"ky":{"login":"Логиниңизди киргизиңиз:","password":"Сырсөзүңүздү киргизиңиз. Текшерилгенден кийин билдирүү өчүрүлөт.","failed":"Логин же сырсөз туура эмес. Кайра аракет кылыңыз.","success":"✅ Кирүү ийгиликтүү болду.","docs":"Кирүү маалыматтарын администратор берет. Сырсөзүңүздү бөлүшпөңүз."},
+"ka":{"login":"შეიყვანეთ თქვენი ლოგინი:","password":"შეიყვანეთ პაროლი. შემოწმების შემდეგ შეტყობინება წაიშლება.","failed":"ლოგინი ან პაროლი არასწორია. სცადეთ თავიდან.","success":"✅ შესვლა წარმატებულია.","docs":"წვდომის მონაცემებს ადმინისტრატორი გასცემს. პაროლი არ გააზიაროთ."},
+"zh":{"login":"请输入您的登录名：","password":"请输入密码。验证后此消息将被删除。","failed":"登录名或密码错误，请重试。","success":"✅ 登录成功。","docs":"登录凭据由管理员提供。请勿分享密码。"},
+"ko":{"login":"로그인 아이디를 입력하세요:","password":"비밀번호를 입력하세요. 확인 후 이 메시지는 삭제됩니다.","failed":"아이디 또는 비밀번호가 올바르지 않습니다. 다시 시도하세요.","success":"✅ 로그인되었습니다.","docs":"관리자가 로그인 정보를 제공합니다. 비밀번호를 공유하지 마세요."},
+"ar":{"login":"أدخل اسم المستخدم:","password":"أدخل كلمة المرور. ستُحذف الرسالة بعد التحقق.","failed":"اسم المستخدم أو كلمة المرور غير صحيحة. حاول مرة أخرى.","success":"✅ تم تسجيل الدخول.","docs":"يصدر المسؤول بيانات الدخول. لا تشارك كلمة المرور."},
+"ja":{"login":"ログイン名を入力してください:","password":"パスワードを入力してください。確認後、このメッセージは削除されます。","failed":"ログイン名またはパスワードが違います。もう一度お試しください。","success":"✅ ログインしました。","docs":"ログイン情報は管理者が発行します。パスワードを共有しないでください。"},
+"fr":{"login":"Saisissez votre identifiant :","password":"Saisissez votre mot de passe. Le message sera supprimé après vérification.","failed":"Identifiant ou mot de passe incorrect. Réessayez.","success":"✅ Connexion réussie.","docs":"Les accès sont fournis par l’administrateur. Ne partagez pas votre mot de passe."},
+"pt":{"login":"Digite seu login:","password":"Digite sua senha. A mensagem será excluída após a verificação.","failed":"Login ou senha incorretos. Tente novamente.","success":"✅ Login realizado.","docs":"O administrador fornece os dados de acesso. Não compartilhe sua senha."},
+"nl":{"login":"Voer uw login in:","password":"Voer uw wachtwoord in. Dit bericht wordt na controle verwijderd.","failed":"Onjuiste login of wachtwoord. Probeer het opnieuw.","success":"✅ U bent ingelogd.","docs":"De beheerder verstrekt de inloggegevens. Deel uw wachtwoord niet."},
+"hi":{"login":"अपना लॉगिन दर्ज करें:","password":"अपना पासवर्ड दर्ज करें। सत्यापन के बाद यह संदेश हटा दिया जाएगा।","failed":"लॉगिन या पासवर्ड गलत है। फिर कोशिश करें।","success":"✅ लॉगिन सफल हुआ।","docs":"लॉगिन विवरण व्यवस्थापक देता है। अपना पासवर्ड साझा न करें।"},
+"sk":{"login":"Zadajte svoje prihlasovacie meno:","password":"Zadajte heslo. Správa sa po overení odstráni.","failed":"Nesprávne meno alebo heslo. Skúste znova.","success":"✅ Prihlásenie úspešné.","docs":"Prihlasovacie údaje poskytuje správca. Heslo nezdieľajte."},
 }
+def locale_for(telegram_id):
+    try:
+        rows = db.table("bot_users").select("language").eq("telegram_id", telegram_id).limit(1).execute().data or []
+        code = rows[0].get("language") if rows else "ru"
+        return code if code in AUTH_COPY else "ru"
+    except Exception:
+        logging.exception("language lookup failed telegram_id=%s", telegram_id)
+        return "ru"
 def locale_for(telegram_id):
     rows = db.table("bot_users").select("language").eq("telegram_id", telegram_id).limit(1).execute().data or []
     code = rows[0].get("language") if rows else "ru"
@@ -101,7 +126,7 @@ def ui(code,key):
     values=AUTH_COPY.get(code,AUTH_COPY["ru"])
     return values[AUTH_KEYS.index(key)]
 def auth_prompt(code,key):
-    return AUTH_PROMPTS.get(code,AUTH_PROMPTS["en"])[key]
+    return AUTH_PROMPTS.get(code,AUTH_PROMPTS["ru"])[key]
 def language_picker_kb():
     b=InlineKeyboardBuilder()
     for code,label in LANGUAGE_OPTIONS: b.button(text=label,callback_data=f"lang:{code}")
