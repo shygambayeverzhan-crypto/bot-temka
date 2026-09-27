@@ -839,7 +839,7 @@ async def p2p_destination(message: Message, state: FSMContext):
             logging.exception("p2p offer notify failed trade_id=%s", trade["id"])
     await state.clear()
     if not delivered:
-        await db.table("p2p_trades").update({"status": "cancelled", "cancelled_at": now(), "updated_at": now()}).eq("id", trade["id"]).execute()
+        db.table("p2p_trades").update({"status": "cancelled", "cancelled_at": now(), "updated_at": now()}).eq("id", trade["id"]).execute()
         await message.answer("Сейчас нет трейдеров с подходящим лимитом. Заявка не создана; попробуйте позже.")
         return
     await message.answer(
