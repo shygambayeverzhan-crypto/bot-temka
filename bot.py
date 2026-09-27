@@ -414,7 +414,9 @@ async def menu_withdraw(call: CallbackQuery,state:FSMContext):
 
 @dp.callback_query(F.data == "menu:help")
 async def menu_help(call: CallbackQuery):
-    await call.message.edit_text("ℹ️ <b>Правила</b>\n\n• Регистрация обязательна.\n• Минимальный депозит — <b>250 USDT</b>.\n• Сеть — <b>TRC20</b>.\n• Депозит подтверждает администратор.\n• При достижении 500 USDT требуется полный вывод.\n• Комиссия вывода — 4%.\n\nПример: <b>500 → 20 комиссии → 480 USDT пользователю.</b>",reply_markup=back_kb(locale_for(call.from_user.id))); await call.answer()
+    code=locale_for(call.from_user.id)
+    await call.message.edit_text(rules_text(code),reply_markup=back_kb(code))
+    await call.answer()
 
 @dp.callback_query(F.data == "menu:history")
 async def menu_history(call: CallbackQuery):
@@ -439,19 +441,16 @@ async def menu_history(call: CallbackQuery):
 
 @dp.callback_query(F.data == "menu:wallets")
 async def menu_wallets(call: CallbackQuery):
-    rows = db.table("wallets").select("*").eq("is_active", True).order("sort_order").execute().data or []
+    code=locale_for(call.from_user.id)
+    rows=db.table("wallets").select("*").eq("is_active",True).order("sort_order").execute().data or []
     if not rows:
-        text = "💳 <b>Реквизиты</b>\n\n⚠️ Активных реквизитов сейчас нет."
+        text=f"💳 <b>{flow(code,'details')}</b>\n\n⚠️ {flow(code,'no_details')}"
     else:
-        parts = ["💳 <b>Реквизиты для пополнения</b>", ""]
+        parts=[f"💳 <b>{flow(code,'details')}</b>",""]
         for x in rows:
-            parts.append(
-                f"🏦 <b>{x['bank_name']}</b>\n"
-                f"<code>{x['requisites']}</code>\n"
-                f"Получатель: <b>{x.get('holder_name') or '—'}</b>\n"
-            )
-        text = "\n".join(parts)
-    await call.message.edit_text(text, reply_markup=back_kb(locale_for(call.from_user.id)))
+            parts.append(f"🏦 <b>{x.get('title') or x['bank_name']}</b>\n{x['bank_name']}\n<code>{x['requisites']}</code>\n{flow(code,'recipient')}: <b>{x.get('holder_name') or '—'}</b>\n")
+        text="\n".join(parts)
+    await call.message.edit_text(text,reply_markup=back_kb(code))
     await call.answer()
 
 @dp.callback_query(F.data.in_({"menu:language", "auth:language"}))
@@ -476,7 +475,7 @@ async def start(message: Message,state:FSMContext):
     if not user:
         await message.answer(auth_screen(code),reply_markup=auth_kb(code)); return
     if user.get("is_blocked"):
-        await message.answer("⛔ Доступ ограничен."); return
+        await message.answer(flow(code,"restricted")); return
     await message.answer(home_text(user),reply_markup=home_kb(locale_for(message.from_user.id)))
 
 @dp.message(F.text == "💰 Мой баланс")
@@ -512,7 +511,8 @@ async def wallets(message: Message):
 
 @dp.message(F.text == "🌐 Язык")
 async def language(message: Message):
-    await message.answer("🌐 <b>Язык</b>\n\nСейчас доступен русский язык.", reply_markup=back_kb(locale_for(message.from_user.id)))
+    code=locale_for(message.from_user.id)
+    await message.answer(ui(code,"choose"),reply_markup=language_picker_kb())
 
 @dp.message(F.text == "💳 Пополнить баланс")
 async def deposit_start(message: Message, state: FSMContext):
@@ -830,12 +830,12 @@ async def notify_admins(order_id, receipt=None):
 async def choose_language(call:CallbackQuery,state:FSMContext):
     code=call.data.split(":",1)[1]
     if code not in AUTH_COPY:
-        await call.answer("Unknown language",show_alert=True); return
+        await call.answer("Неизвестный язык",show_alert=True); return
     ensure_identity(call.from_user)
     db.table("bot_users").update({"language":code,"language_selected":True,"updated_at":now()}).eq("telegram_id",call.from_user.id).execute()
     await state.clear(); await call.answer()
     user=ensure_user(call.from_user)
-    if user and user.get("is_blocked"): await call.message.edit_text("⛔ Доступ ограничен.")
+    if user and user.get("is_blocked"): await call.message.edit_text(flow(code,"restricted"))
     elif user: await call.message.edit_text(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id)))
     else: await call.message.edit_text(auth_screen(code),reply_markup=auth_kb(code))
 
@@ -892,7 +892,7 @@ async def auth_password(message:Message,state:FSMContext):
         db.table("bot_credentials").update({"failed_attempts":0,"locked_until":None,"updated_at":now()}).eq("telegram_id",message.from_user.id).execute()
         user=register_user(message.from_user)
         await state.clear()
-        if user.get("is_blocked"): await message.answer("⛔ Доступ ограничен."); return
+        if user.get("is_blocked"): await message.answer(flow(code,"restricted")); return
         await message.answer(f"{auth_prompt(code,'success')}\n\n{home_text(user)}",reply_markup=home_kb(locale_for(message.from_user.id))); return
     if credential and int(credential["telegram_id"]) == message.from_user.id:
         failures=int(credential.get("failed_attempts") or 0)+1
