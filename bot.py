@@ -364,6 +364,21 @@ def trader_for_user(telegram_id):
     if not u:return None
     rows=db.table("p2p_traders").select("*").eq("user_id",u["id"]).eq("status","active").limit(1).execute().data or []
     return rows[0] if rows else None
+def ensure_trader(telegram_id):
+    user=ensure_user_by_id(telegram_id)
+    if not user:return None
+    trader=trader_for_user(telegram_id)
+    if trader:return trader
+    rows=db.table("p2p_traders").upsert(
+        {"user_id":user["id"],"status":"active","max_volume_usdt":270,"updated_at":now()},
+        on_conflict="user_id"
+    ).execute().data or []
+    return rows[0] if rows else trader_for_user(telegram_id)
+
+def ensure_user_by_id(telegram_id):
+    rows=db.table("bot_users").select("*").eq("telegram_id",telegram_id).limit(1).execute().data or []
+    return rows[0] if rows and rows[0].get("registered_at") else None
+
 def is_active_trader(telegram_id):
     try:return trader_for_user(telegram_id) is not None
     except Exception:logging.exception("trader lookup failed");return False
@@ -388,7 +403,7 @@ def requisites_kb(rows,code):
 def balance_kb(code="ru",is_trader=False):
     labels=HOME_COPY.get(code,HOME_COPY["ru"]);b=InlineKeyboardBuilder()
     b.button(text="📦 "+deposit_label(code),callback_data="menu:deposit");b.button(text=labels[7],callback_data="menu:withdraw")
-    if is_trader:b.button(text=trader_ui(code,"my"),callback_data="trader:requisites")
+    b.button(text=trader_ui(code,"add"),callback_data="trader:requisites")
     b.button(text=labels[11],callback_data="menu:home");b.adjust(1,2,1,1);return b.as_markup()
 
 async def latest_kzt_usd_rate():
@@ -485,8 +500,13 @@ async def fiat_receipt(message:Message,state:FSMContext):
 
 @dp.callback_query(F.data=="trader:requisites")
 async def trader_requisites(call:CallbackQuery):
-    code=locale_for(call.from_user.id);trader=trader_for_user(call.from_user.id)
-    if not trader:await call.answer(trader_ui(code,"only"),show_alert=True);return
+    code=locale_for(call.from_user.id)
+    u=ensure_user(call.from_user) or register_user(call.from_user)
+    if u.get("is_blocked"):
+        await call.answer(flow(code,"restricted"),show_alert=True);return
+    trader=ensure_trader(call.from_user.id)
+    if not trader:
+        await call.answer("Не удалось открыть профиль трейдера. Попробуйте ещё раз.",show_alert=True);return
     rows=db.table("bank_requisites").select("*").eq("trader_id",trader["id"]).order("slot").execute().data or []
     body="\n\n".join(f"🏦 <b>Реквизиты #{x['slot']}</b>\n{x['bank_name']} · {x['country']}\n<code>{x['card_requisites']}</code>\n{x['holder_name']}" for x in rows) or flow(code,"no_details")
     await call.message.edit_text(f"{trader_ui(code,'my')}\n\n{body}",reply_markup=bank_requisites_page_kb(rows,code));await call.answer()
