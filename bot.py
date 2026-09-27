@@ -134,7 +134,7 @@ FLOW = {
 FLOW_KEYS=("unregistered","restricted","deposit","amount_prompt","minimum","balance","withdraw","available","open_withdraw","mandatory","fee","receive","enter_tron","history","no_history","details","no_details","recipient","rules","deposit_submitted","invalid_amount","invalid_tron","order_missing","rejected","confirmed")
 FLOW_EXTRA = {
 # unavailable, open_deposit, amount_label, network_label, address_label, txid_instruction, txid_invalid, receipt_instruction, receipt_pending, delivery_failed, expired, paid, rejected_user, withdraw_created, withdraw_paid, withdraw_rejected
-"ru":("Сначала необходимо вывести весь баланс.","У вас уже есть открытая заявка на депозит.","Сумма","Сеть","Адрес для оплаты","После перевода отправьте TXID или чек.","Отправьте корректный TXID TRC20 или приложите фото/файл чека.","Отправьте TXID TRC20 текстом или приложите фото/файл чека.","✅ Заявка передана администратору на проверку.","Заявка сохранена, но уведомление администратору не доставлено. Попробуйте отправить TXID или чек ещё раз.","⌛ Заявка истекла.","✅ Оплата подтверждена.","❌ Заявка отклонена администратором.","Заявка создана","✅ Вывод подтверждён",flow_extra(locale_for(int(u[0]["telegram_id"])),"withdraw_rejected")),
+"ru":("Сначала необходимо вывести весь баланс.","У вас уже есть открытая заявка на депозит.","Сумма","Сеть","Адрес для оплаты","После перевода отправьте TXID или чек.","Отправьте корректный TXID TRC20 или приложите фото/файл чека.","Отправьте TXID TRC20 текстом или приложите фото/файл чека.","✅ Заявка передана администратору на проверку.","Заявка сохранена, но уведомление администратору не доставлено. Попробуйте отправить TXID или чек ещё раз.","⌛ Заявка истекла.","✅ Оплата подтверждена.","❌ Заявка отклонена администратором.","Заявка создана","✅ Вывод подтверждён","❌ Withdrawal rejected. Your balance is unchanged."),
 "en":("Please withdraw your full balance first.","You already have an open deposit request.","Amount","Network","Payment address","After payment, send the TXID or receipt.","Send a valid TRC20 TXID or attach a receipt image/file.","Send the TRC20 TXID as text or attach a receipt image/file.","✅ Your request has been sent to the administrator for review.","The request was saved, but the administrator was not notified. Please send the TXID or receipt again.","⌛ The request expired.","✅ Payment confirmed.","❌ The request was rejected by the administrator.","Request created","✅ Withdrawal confirmed","❌ Withdrawal rejected. Your balance is unchanged."),
 "uk":("Спочатку виведіть увесь баланс.","У вас уже є відкрита заявка на поповнення.","Сума","Мережа","Адреса для оплати","Після оплати надішліть TXID або чек.","Надішліть коректний TXID TRC20 або додайте фото/файл чека.","Надішліть TXID TRC20 текстом або додайте фото/файл чека.","✅ Заявку передано адміністратору на перевірку.","Заявку збережено, але адміністратора не сповіщено. Надішліть TXID або чек ще раз.","⌛ Термін заявки минув.","✅ Оплату підтверджено.","❌ Заявку відхилено адміністратором.","Заявку створено","✅ Виведення підтверджено","❌ Виведення відхилено. Баланс не змінено."),
 "kk":("Алдымен толық балансты шығарыңыз.","Сізде депозит өтінімі ашық тұр.","Сома","Желі","Төлем мекенжайы","Төлемнен кейін TXID немесе түбіртекті жіберіңіз.","Дұрыс TRC20 TXID жіберіңіз немесе түбіртек суретін/файлын тіркеңіз.","TRC20 TXID мәтінін немесе түбіртек суретін/файлын жіберіңіз.","✅ Өтінім әкімшіге тексеруге жіберілді.","Өтінім сақталды, бірақ әкімшіге хабарланбады. TXID не түбіртекті қайта жіберіңіз.","⌛ Өтінімнің мерзімі аяқталды.","✅ Төлем расталды.","❌ Өтінімді әкімші қабылдамады.","Өтінім жасалды","✅ Шығару расталды","❌ Шығару қабылданбады. Баланс өзгерген жоқ."),
@@ -515,6 +515,7 @@ async def deposit_amount(message:Message,state:FSMContext):
 
 @dp.message(Deposit.txid)
 async def deposit_txid(message: Message, state: FSMContext):
+    code=locale_for(message.from_user.id)
     order_id = (await state.get_data()).get("order_id")
     if not order_id:
         await state.clear()
@@ -670,6 +671,7 @@ async def notify_withdrawal_admins(wid):
 
 @dp.callback_query(F.data.startswith("wconfirm:"))
 async def wconfirm(call:CallbackQuery):
+    code=locale_for(call.from_user.id)
     if not is_admin(call.from_user.id): await call.answer("Нет доступа",show_alert=True); return
     wid=call.data.split(":",1)[1]; result=db.rpc("confirm_withdrawal",{"p_withdrawal_id":wid,"p_admin_telegram_id":call.from_user.id}).execute().data or {}
     if result.get("ok") is not True: await call.answer(f"Ошибка: {result.get('error','unknown')}",show_alert=True); return
@@ -683,7 +685,7 @@ async def wreject(call:CallbackQuery):
     w=rows[0]
     if w["status"]=="paid": await call.answer("Уже выплачено",show_alert=True); return
     db.table("withdrawals").update({"status":"rejected","processed_at":now(),"processed_by":call.from_user.id,"note":"Rejected by admin; balance unchanged."}).eq("id",wid).execute(); u=db.table("bot_users").select("telegram_id").eq("id",w["user_id"]).limit(1).execute().data
-    if u: await notify_user(int(u[0]["telegram_id"]),"❌ Вывод отклонён. Баланс не изменён.")
+    if u: await notify_user(int(u[0]["telegram_id"]),flow_extra(locale_for(int(u[0]["telegram_id"])),"withdraw_rejected"))
     await call.message.edit_text("❌ <b>Вывод отклонён.</b>"); await call.answer()
 
 @dp.message(Command("cancel"))
