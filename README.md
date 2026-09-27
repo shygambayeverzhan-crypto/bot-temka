@@ -1,25 +1,12 @@
-# Telegram Payment Bot
+# БИЗНЕС БОТ
 
-Supabase-backed Telegram bot for manual bank-transfer deposits, receipt review, admin approval, audit logs and 10-minute requisites expiry.
+Telegram business assistant on Aiogram + Supabase.
 
-## Railway variables
+MVP: finances, clients, tasks, analytics. AI module is prepared for the next iteration.
 
-BOT_TOKEN
-SUPABASE_URL
-SUPABASE_SECRET_KEY
-ADMIN_TELEGRAM_ID (optional)
-ADMIN_SETUP_CODE (used by /claim_admin)
+Environment:
+- BOT_TOKEN
+- SUPABASE_URL
+- SUPABASE_SECRET_KEY
 
-Never commit real secrets.
-
-## Start
-
-python bot.py
-
-## Admin
-
-/claim_admin YOUR_SETUP_CODE
-/admin
-/orders
-/wallet_add Name|Bank|Requisites|Holder
-/wallet_off UUID
+Run schema.sql in Supabase SQL Editor, then deploy bot.py with Python 3.11+.
