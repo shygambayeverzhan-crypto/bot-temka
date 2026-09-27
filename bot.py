@@ -563,8 +563,7 @@ async def main():
     await dp.start_polling(bot)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
 
 async def notify_admins(order_id, receipt=None):
     rows = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
