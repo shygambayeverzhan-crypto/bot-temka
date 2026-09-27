@@ -161,6 +161,31 @@ def flow_extra(code,key):
 def amount_prompt(code):
     return f"💰 <b>{flow(code,'deposit')}</b>\n\n{flow(code,'amount_prompt')}\n{flow(code,'minimum')}: <b>{money(MIN_DEPOSIT)} USDT</b>\n{flow_extra(code,'network_label')}: <b>TRC20</b>"
 
+RULES_COPY={
+"ru":"ℹ️ <b>Правила</b>\n\n• Регистрация обязательна.\n• Минимальный депозит — <b>250 USDT</b>.\n• Сеть — <b>TRC20</b>.\n• Депозит подтверждает администратор.\n• При достижении 500 USDT требуется полный вывод.\n• Комиссия вывода — 4%.\n\nПример: <b>500 → 20 комиссии → 480 USDT пользователю.</b>",
+"en":"ℹ️ <b>Rules</b>\n\n• Registration is required.\n• Minimum deposit: <b>250 USDT</b>.\n• Network: <b>TRC20</b>.\n• Deposits are confirmed by an administrator.\n• The full balance must be withdrawn at 500 USDT.\n• Withdrawal fee: 4%.\n\nExample: <b>500 → 20 fee → 480 USDT to the user.</b>",
+"uk":"ℹ️ <b>Правила</b>\n\n• Реєстрація обов’язкова.\n• Мінімальний депозит — <b>250 USDT</b>.\n• Мережа — <b>TRC20</b>.\n• Депозит підтверджує адміністратор.\n• За балансу 500 USDT потрібно вивести всю суму.\n• Комісія за виведення — 4%.\n\nПриклад: <b>500 → 20 комісії → 480 USDT користувачу.</b>",
+"kk":"ℹ️ <b>Ережелер</b>\n\n• Тіркелу міндетті.\n• Ең аз депозит — <b>250 USDT</b>.\n• Желі — <b>TRC20</b>.\n• Депозитті әкімші растайды.\n• Баланс 500 USDT-ке жеткенде толық шығару қажет.\n• Шығару комиссиясы — 4%.\n\nМысал: <b>500 → 20 комиссия → пайдаланушыға 480 USDT.</b>",
+"pl":"ℹ️ <b>Zasady</b>\n\n• Rejestracja jest wymagana.\n• Minimalny depozyt: <b>250 USDT</b>.\n• Sieć: <b>TRC20</b>.\n• Depozyt zatwierdza administrator.\n• Przy saldzie 500 USDT należy wypłacić całość.\n• Opłata za wypłatę: 4%.\n\nPrzykład: <b>500 → 20 opłaty → 480 USDT dla użytkownika.</b>",
+"ro":"ℹ️ <b>Reguli</b>\n\n• Înregistrarea este obligatorie.\n• Depunere minimă: <b>250 USDT</b>.\n• Rețea: <b>TRC20</b>.\n• Depunerea este confirmată de administrator.\n• La un sold de 500 USDT, retragerea integrală este obligatorie.\n• Comision de retragere: 4%.\n\nExemplu: <b>500 → comision 20 → 480 USDT pentru utilizator.</b>",
+"tr":"ℹ️ <b>Kurallar</b>\n\n• Kayıt zorunludur.\n• Minimum yatırma: <b>250 USDT</b>.\n• Ağ: <b>TRC20</b>.\n• Yatırma yönetici tarafından onaylanır.\n• Bakiye 500 USDT'ye ulaştığında tamamı çekilmelidir.\n• Çekim komisyonu: %4.\n\nÖrnek: <b>500 → 20 komisyon → kullanıcıya 480 USDT.</b>",
+"es":"ℹ️ <b>Reglas</b>\n\n• Es obligatorio registrarse.\n• Depósito mínimo: <b>250 USDT</b>.\n• Red: <b>TRC20</b>.\n• El administrador confirma los depósitos.\n• Al llegar a 500 USDT, hay que retirar todo el saldo.\n• Comisión de retirada: 4%.\n\nEjemplo: <b>500 → 20 de comisión → 480 USDT para el usuario.</b>",
+"de":"ℹ️ <b>Regeln</b>\n\n• Eine Registrierung ist erforderlich.\n• Mindesteinzahlung: <b>250 USDT</b>.\n• Netzwerk: <b>TRC20</b>.\n• Einzahlungen werden vom Administrator bestätigt.\n• Bei 500 USDT muss das gesamte Guthaben ausgezahlt werden.\n• Auszahlungsgebühr: 4%.\n\nBeispiel: <b>500 → 20 Gebühr → 480 USDT für den Nutzer.</b>",
+"ky":"ℹ️ <b>Эрежелер</b>\n\n• Катталуу милдеттүү.\n• Минималдуу депозит — <b>250 USDT</b>.\n• Тармак — <b>TRC20</b>.\n• Депозитти администратор ырастайт.\n• Баланс 500 USDT болгондо толугу менен чыгаруу керек.\n• Чыгаруу комиссиясы — 4%.\n\nМисал: <b>500 → 20 комиссия → колдонуучуга 480 USDT.</b>",
+"ka":"ℹ️ <b>წესები</b>\n\n• რეგისტრაცია აუცილებელია.\n• მინიმალური დეპოზიტი — <b>250 USDT</b>.\n• ქსელი — <b>TRC20</b>.\n• დეპოზიტს ადმინისტრატორი ადასტურებს.\n• 500 USDT ბალანსის მიღწევისას საჭიროა სრული გატანა.\n• გატანის საკომისიო — 4%.\n\nმაგალითი: <b>500 → 20 საკომისიო → მომხმარებელს 480 USDT.</b>",
+"zh":"ℹ️ <b>规则</b>\n\n• 必须注册。\n• 最低充值：<b>250 USDT</b>。\n• 网络：<b>TRC20</b>。\n• 充值由管理员确认。\n• 余额达到 500 USDT 时须全部提现。\n• 提现手续费：4%。\n\n示例：<b>500 → 手续费 20 → 用户收到 480 USDT。</b>",
+"ko":"ℹ️ <b>이용 규칙</b>\n\n• 가입이 필요합니다.\n• 최소 입금액: <b>250 USDT</b>.\n• 네트워크: <b>TRC20</b>.\n• 입금은 관리자가 확인합니다.\n• 잔액이 500 USDT에 도달하면 전액 출금해야 합니다.\n• 출금 수수료: 4%.\n\n예: <b>500 → 수수료 20 → 사용자에게 480 USDT.</b>",
+"ar":"ℹ️ <b>القواعد</b>\n\n• التسجيل مطلوب.\n• الحد الأدنى للإيداع: <b>250 USDT</b>.\n• الشبكة: <b>TRC20</b>.\n• يؤكد المسؤول الإيداعات.\n• عند بلوغ الرصيد 500 USDT يجب سحبه بالكامل.\n• رسوم السحب: 4%.\n\nمثال: <b>500 ← 20 رسوم ← 480 USDT للمستخدم.</b>",
+"ja":"ℹ️ <b>ルール</b>\n\n• 登録が必要です。\n• 最低入金額：<b>250 USDT</b>。\n• ネットワーク：<b>TRC20</b>。\n• 入金は管理者が確認します。\n• 残高が500 USDTに達したら全額出金が必要です。\n• 出金手数料：4%。\n\n例：<b>500 → 手数料20 → ユーザーに480 USDT。</b>",
+"fr":"ℹ️ <b>Règles</b>\n\n• L’inscription est obligatoire.\n• Dépôt minimum : <b>250 USDT</b>.\n• Réseau : <b>TRC20</b>.\n• Les dépôts sont confirmés par l’administrateur.\n• À 500 USDT, le solde doit être retiré en totalité.\n• Frais de retrait : 4%.\n\nExemple : <b>500 → 20 de frais → 480 USDT pour l’utilisateur.</b>",
+"pt":"ℹ️ <b>Regras</b>\n\n• O cadastro é obrigatório.\n• Depósito mínimo: <b>250 USDT</b>.\n• Rede: <b>TRC20</b>.\n• O administrador confirma os depósitos.\n• Ao atingir 500 USDT, é necessário sacar todo o saldo.\n• Taxa de saque: 4%.\n\nExemplo: <b>500 → 20 de taxa → 480 USDT para o usuário.</b>",
+"nl":"ℹ️ <b>Regels</b>\n\n• Registratie is verplicht.\n• Minimale storting: <b>250 USDT</b>.\n• Netwerk: <b>TRC20</b>.\n• Stortingen worden door een beheerder bevestigd.\n• Bij 500 USDT moet het volledige saldo worden opgenomen.\n• Opnamekosten: 4%.\n\nVoorbeeld: <b>500 → 20 kosten → 480 USDT voor de gebruiker.</b>",
+"hi":"ℹ️ <b>नियम</b>\n\n• पंजीकरण आवश्यक है।\n• न्यूनतम जमा: <b>250 USDT</b>।\n• नेटवर्क: <b>TRC20</b>।\n• जमा की पुष्टि व्यवस्थापक करता है।\n• 500 USDT शेष होने पर पूरी राशि निकालनी होगी।\n• निकासी शुल्क: 4%।\n\nउदाहरण: <b>500 → 20 शुल्क → उपयोगकर्ता को 480 USDT।</b>",
+"sk":"ℹ️ <b>Pravidlá</b>\n\n• Registrácia je povinná.\n• Minimálny vklad: <b>250 USDT</b>.\n• Sieť: <b>TRC20</b>.\n• Vklad potvrdzuje správca.\n• Pri zostatku 500 USDT je potrebné vybrať celú sumu.\n• Poplatok za výber: 4%.\n\nPríklad: <b>500 → poplatok 20 → používateľ dostane 480 USDT.</b>"
+}
+def rules_text(code):
+    return RULES_COPY.get(code,RULES_COPY["en"])
+
 def locale_for(telegram_id):
     try:
         rows = db.table("bot_users").select("language").eq("telegram_id", telegram_id).limit(1).execute().data or []
