@@ -83,6 +83,25 @@ def ensure_user(tg):
     row.update(data)
     return row
 
+
+def register_user(tg):
+    """Create or activate a user's account; safe to call more than once."""
+    existing = get_user(tg.id)
+    data = {
+        "telegram_id": tg.id,
+        "username": tg.username,
+        "first_name": tg.first_name,
+        "last_name": tg.last_name,
+        "updated_at": now(),
+    }
+    if existing:
+        if not existing.get("registered_at"):
+            data["registered_at"] = now()
+        db.table("bot_users").update(data).eq("telegram_id", tg.id).execute()
+    else:
+        data.update({"balance": 0, "is_blocked": False, "registered_at": now()})
+        db.table("bot_users").insert(data).execute()
+    return get_user(tg.id)
 def admin_ids():
     ids = {ADMIN_TELEGRAM_ID} if ADMIN_TELEGRAM_ID else set()
     r = db.table("bot_admins").select("telegram_id").eq("is_active", True).execute()
@@ -224,7 +243,25 @@ async def start(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "register")
 async def register_cb(call: CallbackQuery):
-    u=register_user(call.from_user); await call.message.edit_text("✅ <b>Регистрация завершена.</b>\n\n"+home_text(u),reply_markup=home_kb()); await call.answer("Готово")
+    # Acknowledge immediately so Telegram stops showing the callback spinner.
+    await call.answer()
+    try:
+        u = register_user(call.from_user)
+        if not u:
+            raise RuntimeError("Registration did not return a user row")
+        if u.get("is_blocked"):
+            await call.message.edit_text("⛔ <b>Доступ ограничен.</b>")
+            return
+        await call.message.edit_text(
+            "✅ <b>Регистрация завершена.</b>\\n\\n" + home_text(u),
+            reply_markup=home_kb(),
+        )
+    except Exception:
+        logging.exception("registration failed for telegram_id=%s", call.from_user.id)
+        await call.message.edit_text(
+            "❌ Не удалось завершить регистрацию. Попробуйте ещё раз позже.",
+            reply_markup=register_kb(),
+        )
 
 @dp.message(F.text == "💰 Мой баланс")
 async def balance(message: Message):
