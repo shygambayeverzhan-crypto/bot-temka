@@ -676,6 +676,11 @@ def open_order(user_id):
          .order("created_at", desc=True).limit(1).execute())
     return r.data[0] if r.data else None
 
+def open_withdrawal(user_id):
+    r = (db.table("withdrawals").select("id").eq("user_id", user_id)
+         .in_("status", ["pending", "processing"]).limit(1).execute())
+    return bool(r.data)
+
 async def notify_user(tg_id, text):
     try:
         await bot.send_message(tg_id, text)
@@ -695,9 +700,8 @@ async def show_home(target,tg):
     if not (row or {}).get("language_selected"):
         text=ui(code,"choose"); markup=language_picker_kb()
     else:
-        u=ensure_user(tg)
-        if not u: text=auth_screen(code); markup=auth_kb(code)
-        elif u.get("is_blocked"): text="⛔ Доступ ограничен."; markup=None
+        u=ensure_user(tg) or register_user(tg)
+        if u.get("is_blocked"): text="⛔ Доступ ограничен."; markup=None
         else: text=home_text(u); markup=home_kb(code)
     if isinstance(target,CallbackQuery):
         await target.message.edit_text(text,reply_markup=markup); await target.answer()
@@ -724,8 +728,7 @@ async def menu_balance(call: CallbackQuery):
 @dp.callback_query(F.data == "menu:withdraw")
 async def menu_withdraw(call: CallbackQuery,state:FSMContext):
     code=locale_for(call.from_user.id)
-    u=ensure_user(call.from_user)
-    if not u: await call.answer(flow(code,"unregistered"),show_alert=True); return
+    u=ensure_user(call.from_user) or register_user(call.from_user)
     bal=Decimal(str(u["balance"]))
     if bal<THRESHOLD:
         await call.message.edit_text(f"📤 <b>{flow(code,'withdraw')}</b>\n\n{flow(code,'available')} <b>270 USDT</b>.\n{deposit_label(code)}: <b>{money(bal)} / 270 USDT</b>.",reply_markup=back_kb(code))
@@ -796,9 +799,7 @@ async def start(message: Message,state:FSMContext):
     code=(row or {}).get("language") or "ru"
     if not (row or {}).get("language_selected"):
         await message.answer(ui(code,"choose"),reply_markup=language_picker_kb()); return
-    user=ensure_user(message.from_user)
-    if not user:
-        await message.answer(auth_screen(code),reply_markup=auth_kb(code)); return
+    user=ensure_user(message.from_user) or register_user(message.from_user)
     if user.get("is_blocked"):
         await message.answer(flow(code,"restricted")); return
     await message.answer(home_text(user),reply_markup=home_kb(locale_for(message.from_user.id)))
@@ -1002,8 +1003,7 @@ async def withdrawal_address(message:Message,state:FSMContext):
     code=locale_for(message.from_user.id)
     addr=(message.text or "").strip()
     if not valid_tron_address(addr): await message.answer(flow(code,"invalid_tron")); return
-    u=ensure_user(message.from_user)
-    if not u: await state.clear(); await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
+    u=ensure_user(message.from_user) or register_user(message.from_user)
     bal=Decimal(str(u["balance"]))
     if bal<THRESHOLD: await state.clear(); await message.answer(f"⚠️ {flow(code,'balance')}: {money(bal)} USDT",reply_markup=home_kb(code)); return
     fee=(bal*FEE_RATE).quantize(Decimal("0.01"),rounding=ROUND_DOWN); net=bal-fee
@@ -1167,10 +1167,9 @@ async def choose_language(call:CallbackQuery,state:FSMContext):
     ensure_identity(call.from_user)
     db.table("bot_users").update({"language":code,"language_selected":True,"updated_at":now()}).eq("telegram_id",call.from_user.id).execute()
     await state.clear(); await call.answer()
-    user=ensure_user(call.from_user)
-    if user and user.get("is_blocked"): await call.message.edit_text(flow(code,"restricted"))
-    elif user: await call.message.edit_text(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id)))
-    else: await call.message.edit_text(auth_screen(code),reply_markup=auth_kb(code))
+    user=ensure_user(call.from_user) or register_user(call.from_user)
+    if user.get("is_blocked"): await call.message.edit_text(flow(code,"restricted"))
+    else: await call.message.edit_text(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id)))
 
 
 @dp.callback_query(F.data == "auth:docs")
@@ -1182,12 +1181,11 @@ async def auth_documentation(call:CallbackQuery):
 @dp.callback_query(F.data == "auth:login")
 async def auth_login(call:CallbackQuery,state:FSMContext):
     await call.answer()
-    user=ensure_user(call.from_user)
-    if user:
-        await call.message.edit_text(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id))); return
-    code=locale_for(call.from_user.id)
-    await state.clear(); await state.set_state(Auth.login)
-    await call.message.answer(auth_prompt(code,"login"))
+    user=ensure_user(call.from_user) or register_user(call.from_user)
+    await state.clear()
+    if user.get("is_blocked"):
+        await call.message.edit_text(flow(locale_for(call.from_user.id),"restricted")); return
+    await call.message.edit_text(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id)))
 
 
 @dp.message(Auth.login)
