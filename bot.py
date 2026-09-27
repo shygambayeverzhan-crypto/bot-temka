@@ -132,6 +132,10 @@ FLOW = {
 "sk":("👋 Najprv sa zaregistrujte.","⛔ <b>Prístup je obmedzený.</b>","Vklad","Zadajte sumu v USDT.","Minimum","Zostatok","Výber","Výber je dostupný pri zostatku od","Už máte otvorenú žiadosť o výber.","Povinný výber","Poplatok 4%","Dostanete","Zadajte adresu USDT TRC20:","História operácií","Zatiaľ žiadne operácie.","Údaje na vklad","Nie sú dostupné aktívne platobné údaje.","Príjemca","Pravidlá","✅ Žiadosť bola odoslaná správcovi na kontrolu.","❌ Zadajte číslo, napríklad <code>250</code>.","❌ Neplatná adresa USDT TRC20.","Žiadosť sa nenašla.","❌ Žiadosť bola zamietnutá.","✅ Žiadosť bola potvrdená."),
 }
 FLOW_KEYS=("unregistered","restricted","deposit","amount_prompt","minimum","balance","withdraw","available","open_withdraw","mandatory","fee","receive","enter_tron","history","no_history","details","no_details","recipient","rules","deposit_submitted","invalid_amount","invalid_tron","order_missing","rejected","confirmed")
+def flow(code,key):
+    values=FLOW.get(code,FLOW["en"])
+    return values[FLOW_KEYS.index(key)]
+
 FLOW_EXTRA = {
 # unavailable, open_deposit, amount_label, network_label, address_label, txid_instruction, txid_invalid, receipt_instruction, receipt_pending, delivery_failed, expired, paid, rejected_user, withdraw_created, withdraw_paid, withdraw_rejected
 "ru":("Сначала необходимо вывести весь баланс.","У вас уже есть открытая заявка на депозит.","Сумма","Сеть","Адрес для оплаты","После перевода отправьте TXID или чек.","Отправьте корректный TXID TRC20 или приложите фото/файл чека.","Отправьте TXID TRC20 текстом или приложите фото/файл чека.","✅ Заявка передана администратору на проверку.","Заявка сохранена, но уведомление администратору не доставлено. Попробуйте отправить TXID или чек ещё раз.","⌛ Заявка истекла.","✅ Оплата подтверждена.","❌ Заявка отклонена администратором.","Заявка создана","✅ Вывод подтверждён","❌ Вывод отклонён. Баланс не изменён."),
