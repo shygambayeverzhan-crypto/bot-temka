@@ -186,6 +186,31 @@ RULES_COPY={
 def rules_text(code):
     return RULES_COPY.get(code,RULES_COPY["en"])
 
+ERROR_COPY={
+"ru":{"deposit":"❌ Не удалось создать заявку.","withdraw":"❌ Не удалось создать заявку на вывод.","cancel":"↩️ <b>Операция отменена.</b>","cred_title":"🔐 <b>Данные для входа</b>","cred_warn":"Не пересылайте это сообщение. После входа удалите его из чата."},
+"en":{"deposit":"❌ Could not create the deposit request.","withdraw":"❌ Could not create the withdrawal request.","cancel":"↩️ <b>Operation cancelled.</b>","cred_title":"🔐 <b>Sign-in details</b>","cred_warn":"Do not forward this message. Delete it from the chat after signing in."},
+"uk":{"deposit":"❌ Не вдалося створити заявку на депозит.","withdraw":"❌ Не вдалося створити заявку на виведення.","cancel":"↩️ <b>Операцію скасовано.</b>","cred_title":"🔐 <b>Дані для входу</b>","cred_warn":"Не пересилайте це повідомлення. Після входу видаліть його з чату."},
+"kk":{"deposit":"❌ Депозит өтінімін жасау мүмкін болмады.","withdraw":"❌ Шығару өтінімін жасау мүмкін болмады.","cancel":"↩️ <b>Әрекет тоқтатылды.</b>","cred_title":"🔐 <b>Кіру деректері</b>","cred_warn":"Бұл хабарламаны басқаға жібермеңіз. Кіргеннен кейін чатты өшіріңіз."},
+"pl":{"deposit":"❌ Nie udało się utworzyć wniosku o wpłatę.","withdraw":"❌ Nie udało się utworzyć wniosku o wypłatę.","cancel":"↩️ <b>Operacja anulowana.</b>","cred_title":"🔐 <b>Dane logowania</b>","cred_warn":"Nie przekazuj tej wiadomości dalej. Usuń ją z czatu po zalogowaniu."},
+"ro":{"deposit":"❌ Nu s-a putut crea cererea de depunere.","withdraw":"❌ Nu s-a putut crea cererea de retragere.","cancel":"↩️ <b>Operațiune anulată.</b>","cred_title":"🔐 <b>Date de conectare</b>","cred_warn":"Nu redirecționați acest mesaj. Ștergeți-l după autentificare."},
+"tr":{"deposit":"❌ Yatırma talebi oluşturulamadı.","withdraw":"❌ Para çekme talebi oluşturulamadı.","cancel":"↩️ <b>İşlem iptal edildi.</b>","cred_title":"🔐 <b>Giriş bilgileri</b>","cred_warn":"Bu mesajı başkasına iletmeyin. Giriş yaptıktan sonra sohbetten silin."},
+"es":{"deposit":"❌ No se pudo crear la solicitud de depósito.","withdraw":"❌ No se pudo crear la solicitud de retirada.","cancel":"↩️ <b>Operación cancelada.</b>","cred_title":"🔐 <b>Datos de acceso</b>","cred_warn":"No reenvíes este mensaje. Elimínalo del chat después de iniciar sesión."},
+"de":{"deposit":"❌ Der Einzahlungsantrag konnte nicht erstellt werden.","withdraw":"❌ Der Auszahlungsantrag konnte nicht erstellt werden.","cancel":"↩️ <b>Vorgang abgebrochen.</b>","cred_title":"🔐 <b>Anmeldedaten</b>","cred_warn":"Leiten Sie diese Nachricht nicht weiter. Löschen Sie sie nach der Anmeldung."},
+"ky":{"deposit":"❌ Депозит өтүнүчүн түзүү мүмкүн болгон жок.","withdraw":"❌ Чыгаруу өтүнүчүн түзүү мүмкүн болгон жок.","cancel":"↩️ <b>Аракет токтотулду.</b>","cred_title":"🔐 <b>Кирүү маалыматы</b>","cred_warn":"Бул билдирүүнү башкаларга жөнөтпөңүз. Киргенден кийин чатты өчүрүңүз."},
+"ka":{"deposit":"❌ დეპოზიტის განაცხადის შექმნა ვერ მოხერხდა.","withdraw":"❌ გატანის განაცხადის შექმნა ვერ მოხერხდა.","cancel":"↩️ <b>ოპერაცია გაუქმდა.</b>","cred_title":"🔐 <b>შესვლის მონაცემები</b>","cred_warn":"ეს შეტყობინება არ გადააგზავნოთ. შესვლის შემდეგ წაშალეთ ჩატიდან."},
+"zh":{"deposit":"❌ 无法创建充值申请。","withdraw":"❌ 无法创建提现申请。","cancel":"↩️ <b>操作已取消。</b>","cred_title":"🔐 <b>登录信息</b>","cred_warn":"请勿转发此消息。登录后请从聊天中删除。"},
+"ko":{"deposit":"❌ 입금 신청을 만들 수 없습니다.","withdraw":"❌ 출금 신청을 만들 수 없습니다.","cancel":"↩️ <b>작업이 취소되었습니다.</b>","cred_title":"🔐 <b>로그인 정보</b>","cred_warn":"이 메시지를 전달하지 마세요. 로그인 후 채팅에서 삭제하세요."},
+"ar":{"deposit":"❌ تعذر إنشاء طلب الإيداع.","withdraw":"❌ تعذر إنشاء طلب السحب.","cancel":"↩️ <b>تم إلغاء العملية.</b>","cred_title":"🔐 <b>بيانات تسجيل الدخول</b>","cred_warn":"لا تُعد توجيه هذه الرسالة. احذفها من المحادثة بعد تسجيل الدخول."},
+"ja":{"deposit":"❌ 入金申請を作成できませんでした。","withdraw":"❌ 出金申請を作成できませんでした。","cancel":"↩️ <b>操作をキャンセルしました。</b>","cred_title":"🔐 <b>ログイン情報</b>","cred_warn":"このメッセージを転送しないでください。ログイン後にチャットから削除してください。"},
+"fr":{"deposit":"❌ Impossible de créer la demande de dépôt.","withdraw":"❌ Impossible de créer la demande de retrait.","cancel":"↩️ <b>Opération annulée.</b>","cred_title":"🔐 <b>Identifiants de connexion</b>","cred_warn":"Ne transférez pas ce message. Supprimez-le de la conversation après connexion."},
+"pt":{"deposit":"❌ Não foi possível criar a solicitação de depósito.","withdraw":"❌ Não foi possível criar a solicitação de saque.","cancel":"↩️ <b>Operação cancelada.</b>","cred_title":"🔐 <b>Dados de acesso</b>","cred_warn":"Não encaminhe esta mensagem. Exclua-a do chat após entrar."},
+"nl":{"deposit":"❌ Het stortingsverzoek kon niet worden aangemaakt.","withdraw":"❌ Het opnameverzoek kon niet worden aangemaakt.","cancel":"↩️ <b>Handeling geannuleerd.</b>","cred_title":"🔐 <b>Inloggegevens</b>","cred_warn":"Stuur dit bericht niet door. Verwijder het na het inloggen uit de chat."},
+"hi":{"deposit":"❌ जमा अनुरोध नहीं बनाया जा सका।","withdraw":"❌ निकासी अनुरोध नहीं बनाया जा सका।","cancel":"↩️ <b>कार्रवाई रद्द हुई।</b>","cred_title":"🔐 <b>लॉगिन विवरण</b>","cred_warn":"इस संदेश को आगे न भेजें। लॉगिन के बाद इसे चैट से हटा दें।"},
+"sk":{"deposit":"❌ Nepodarilo sa vytvoriť žiadosť o vklad.","withdraw":"❌ Nepodarilo sa vytvoriť žiadosť o výber.","cancel":"↩️ <b>Operácia zrušená.</b>","cred_title":"🔐 <b>Prihlasovacie údaje</b>","cred_warn":"Túto správu neposielajte ďalej. Po prihlásení ju z chatu odstráňte."}
+}
+def error_copy(code,key):
+    return ERROR_COPY.get(code,ERROR_COPY["en"])[key]
+
 def locale_for(telegram_id):
     try:
         rows = db.table("bot_users").select("language").eq("telegram_id", telegram_id).limit(1).execute().data or []
@@ -534,7 +559,7 @@ async def deposit_amount(message:Message,state:FSMContext):
     try:
         o=db.table("orders").insert({"user_id":u["id"],"wallet_id":None,"wallet_snapshot":{"network":"TRC20","asset":"USDT","address":ADMIN_TRC20_ADDRESS},"amount":float(amount),"currency":"USDT","network":"TRC20","status":"pending","expires_at":(datetime.now(timezone.utc)+timedelta(minutes=20)).isoformat()}).execute().data[0]
     except Exception:
-        logging.exception("deposit create failed"); await message.answer("❌ Could not create the request."); return
+        logging.exception("deposit create failed"); await message.answer(error_copy(code,"deposit")); return
     await state.set_state(Deposit.txid); await state.update_data(order_id=o["id"])
     await message.answer(f"🧾 <b>#{o['order_number']}</b>\n\n{flow_extra(code,'amount_label')}: <b>{money(amount)} USDT</b>\n{flow_extra(code,'network_label')}: <b>TRC20</b>\n\n{flow_extra(code,'address_label')}:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\n{flow_extra(code,'txid_instruction')}",reply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS,code))
 
@@ -577,10 +602,7 @@ async def deposit_txid(message: Message, state: FSMContext):
         delivered = False
 
     if not delivered:
-        await message.answer(
-            "Заявка сохранена, но уведомление администратору не доставлено. "
-            "Попробуйте отправить TXID или чек ещё раз — заявка останется той же."
-        )
+        await message.answer(flow_extra(code,"delivery_failed"))
         return
 
     await state.clear()
@@ -681,7 +703,7 @@ async def withdrawal_address(message:Message,state:FSMContext):
     try:
         wd=db.table("withdrawals").insert({"user_id":u["id"],"amount":float(bal),"fee_amount":float(fee),"net_amount":float(net),"currency":"USDT","destination_address":addr,"status":"pending","note":"Mandatory full withdrawal; 4% fee retained by admin."}).execute().data[0]
     except Exception:
-        logging.exception("withdrawal create failed"); await message.answer("❌ Could not create the request."); return
+        logging.exception("withdrawal create failed"); await message.answer(error_copy(code,"withdraw")); return
     await state.clear()
     await message.answer(f"📤 <b>{flow_extra(code,'withdraw_created')}</b>\n\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>\n{flow(code,'fee')}: <b>{money(fee)} USDT</b>\n{flow(code,'receive')}: <b>{money(net)} USDT</b>\n\n{flow_extra(code,'address_label')}:\n<code>{addr}</code>",reply_markup=home_kb(code))
     await notify_withdrawal_admins(wd["id"])
@@ -716,7 +738,8 @@ async def wreject(call:CallbackQuery):
 @dp.message(Command("cancel"))
 async def cancel_cmd(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("↩️ <b>Операция отменена.</b>", reply_markup=home_kb(locale_for(message.from_user.id)))
+    code=locale_for(message.from_user.id)
+    await message.answer(error_copy(code,"cancel"),reply_markup=home_kb(code))
 
 @dp.message(Command("claim_admin"))
 async def claim_admin(message: Message):
@@ -923,7 +946,7 @@ async def issue_login(message:Message):
         logging.exception("credential issue failed target_id=%s",target_id)
         await message.answer("Не удалось выдать логин. Возможно, этот логин уже занят."); return
     try:
-        await bot.send_message(target_id,f"🔐 <b>Данные для входа</b>\nЛогин: <code>{login}</code>\nПароль: <code>{password}</code>\n\nНе пересылайте это сообщение. После входа удалите его из чата.")
+        await bot.send_message(target_id,f"{error_copy(locale_for(target_id),'cred_title')}\nLogin: <code>{login}</code>\nPassword: <code>{password}</code>\n\n{error_copy(locale_for(target_id),'cred_warn')}")
     except Exception:
         await message.answer("Учётная запись создана, но Telegram не доставил сообщение. Пользователь должен открыть бота; затем повторите /issue_login.")
         return
