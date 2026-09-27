@@ -6,7 +6,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -19,6 +19,7 @@ from aiogram.types import CallbackQuery, CopyTextButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from dotenv import load_dotenv
 from supabase import Client, create_client
+import httpx
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +40,7 @@ bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
 MIN_DEPOSIT = Decimal("250")
-THRESHOLD = Decimal("500")
+THRESHOLD = Decimal("270")
 FEE_RATE = Decimal("0.04")
 ADMIN_TRC20_ADDRESS = os.getenv("ADMIN_TRC20_ADDRESS", "TNTuGJ2LrGR9va5ywJq8zAx8CxjVUJRMzP").strip()
 
@@ -49,6 +50,19 @@ class Deposit(StatesGroup):
 
 class Withdrawal(StatesGroup):
     address = State()
+
+class FiatDeposit(StatesGroup):
+    amount_kzt = State()
+    receipt = State()
+
+class TraderBank(StatesGroup):
+    bank_name = State()
+    country = State()
+    card = State()
+    holder = State()
+
+class FiatReview(StatesGroup):
+    amount_kzt = State()
 
 class Auth(StatesGroup):
     login = State()
@@ -291,7 +305,7 @@ def home_kb(code="ru"):
     labels=HOME_COPY.get(code,HOME_COPY["ru"])
     b = InlineKeyboardBuilder()
     b.button(text=labels[5], callback_data="menu:deposit")
-    b.button(text=labels[6], callback_data="menu:balance")
+    b.button(text="📦 "+deposit_label(code), callback_data="menu:balance")
     b.button(text=labels[7], callback_data="menu:withdraw")
     b.button(text=labels[8], callback_data="menu:history")
     b.button(text=labels[9], callback_data="menu:help")
@@ -313,8 +327,273 @@ def address_copy_kb(address,code="ru"):
     return b.as_markup()
 
 
-def balance_kb(code="ru"):
-    labels=HOME_COPY.get(code,HOME_COPY["ru"]); b=InlineKeyboardBuilder(); b.button(text=labels[5],callback_data="menu:deposit"); b.button(text=labels[7],callback_data="menu:withdraw"); b.button(text=labels[11],callback_data="menu:home"); b.adjust(1,2); return b.as_markup()
+DEPOSIT_LABELS={"ru":"Депозит 270 USDT","en":"Deposit 270 USDT","uk":"Депозит 270 USDT","kk":"Депозит 270 USDT","pl":"Depozyt 270 USDT","ro":"Depozit 270 USDT","tr":"270 USDT depozitosu","es":"Depósito 270 USDT","de":"Einzahlung 270 USDT","ky":"270 USDT депозит","ka":"დეპოზიტი 270 USDT","zh":"270 USDT 存款","ko":"270 USDT 예치금","ar":"إيداع 270 USDT","ja":"270 USDTの預入","fr":"Dépôt 270 USDT","pt":"Depósito 270 USDT","nl":"Storting 270 USDT","hi":"जमा 270 USDT","sk":"Vklad 270 USDT"}
+KZT_AMOUNT={"ru":"Введите сумму перевода в тенге (KZT):","en":"Enter the transfer amount in Kazakhstani tenge (KZT):","uk":"Введіть суму переказу в тенге (KZT):","kk":"Аударым сомасын теңгемен (KZT) енгізіңіз:","pl":"Wpisz kwotę przelewu w tenge (KZT):","ro":"Introduceți suma transferului în tenge (KZT):","tr":"Transfer tutarını tenge (KZT) olarak girin:","es":"Introduce el importe en tenge (KZT):","de":"Geben Sie den Betrag in Tenge (KZT) ein:","ky":"Которуу суммасын теңге менен (KZT) киргизиңиз:","ka":"შეიყვანეთ თანხა ტენგეში (KZT):","zh":"请输入坚戈金额（KZT）：","ko":"텡게(KZT) 금액을 입력하세요:","ar":"أدخل المبلغ بالتينغ (KZT):","ja":"テンゲ（KZT）の金額を入力してください：","fr":"Saisissez le montant en tenge (KZT) :","pt":"Digite o valor em tenge (KZT):","nl":"Voer het bedrag in tenge (KZT) in:","hi":"टेंगे (KZT) में राशि दर्ज करें:","sk":"Zadajte sumu v tenge (KZT):"}
+KZT_CAP={"ru":"Сумма превысит цель депозита 270 USDT. Введите меньшую сумму.","en":"This amount exceeds the 270 USDT deposit target. Enter a lower amount.","uk":"Сума перевищить ціль депозиту 270 USDT. Введіть меншу суму.","kk":"Бұл сома 270 USDT депозит мақсатына асады. Азырақ сома енгізіңіз.","pl":"Kwota przekroczy cel 270 USDT. Wpisz mniejszą kwotę.","ro":"Suma depășește ținta de 270 USDT. Introduceți o sumă mai mică.","tr":"Bu tutar 270 USDT hedefini aşar. Daha düşük bir tutar girin.","es":"El importe supera el objetivo de 270 USDT. Introduce uno menor.","de":"Der Betrag überschreitet das Ziel von 270 USDT. Geben Sie weniger ein.","ky":"Бул сумма 270 USDT максатынан ашат. Азыраак сумма киргизиңиз.","ka":"თანხა აღემატება 270 USDT მიზანს. შეიყვანეთ ნაკლები.","zh":"该金额超过 270 USDT 目标。请输入较小金额。","ko":"이 금액은 270 USDT 목표를 초과합니다. 더 적은 금액을 입력하세요.","ar":"يتجاوز المبلغ هدف 270 USDT. أدخل مبلغًا أقل.","ja":"金額が270 USDTの目標を超えます。少ない金額を入力してください。","fr":"Ce montant dépasse l’objectif de 270 USDT. Saisissez un montant inférieur.","pt":"O valor excede a meta de 270 USDT. Digite um valor menor.","nl":"Dit bedrag overschrijdt het doel van 270 USDT. Voer minder in.","hi":"यह राशि 270 USDT लक्ष्य से अधिक है। कम राशि दर्ज करें।","sk":"Suma prekročí cieľ 270 USDT. Zadajte nižšiu sumu."}
+TRADER_UI={"ru":{"add":"➕ Добавить реквизиты","my":"🏦 Мои реквизиты","bank":"Название банка:","country":"Страна:","card":"Реквизиты карты:","holder":"ФИО владельца карты:","other":"Введите фактически поступившую сумму в KZT:","saved":"✅ Реквизиты сохранены.","only":"Доступно только активным трейдерам."},"en":{"add":"➕ Add bank details","my":"🏦 My bank details","bank":"Bank name:","country":"Country:","card":"Card details:","holder":"Cardholder full name:","other":"Enter the amount actually received in KZT:","saved":"✅ Bank details saved.","only":"Available to active traders only."},"kk":{"add":"➕ Реквизиттерді қосу","my":"🏦 Менің реквизиттерім","bank":"Банк атауы:","country":"Ел:","card":"Карта деректемелері:","holder":"Карта иесінің аты-жөні:","other":"Нақты түскен соманы KZT-пен енгізіңіз:","saved":"✅ Реквизиттер сақталды.","only":"Тек белсенді трейдерлерге қолжетімді."}}
+def deposit_label(code):return DEPOSIT_LABELS.get(code,DEPOSIT_LABELS["en"])
+def trader_ui(code,key):return TRADER_UI.get(code,TRADER_UI["en"])[key]
+def kzt_amount_label(code):return KZT_AMOUNT.get(code,KZT_AMOUNT["en"])
+def kzt_cap_label(code):return KZT_CAP.get(code,KZT_CAP["en"])
+
+def trader_for_user(telegram_id):
+    u=get_user(telegram_id)
+    if not u:return None
+    rows=db.table("p2p_traders").select("*").eq("user_id",u["id"]).eq("status","active").limit(1).execute().data or []
+    return rows[0] if rows else None
+def is_active_trader(telegram_id):
+    try:return trader_for_user(telegram_id) is not None
+    except Exception:logging.exception("trader lookup failed");return False
+def bank_requisites_for_traders():
+    traders=db.table("p2p_traders").select("id,user_id").eq("status","active").execute().data or []
+    ids={x["id"] for x in traders}
+    if not ids:return []
+    owner={x["id"]:x["user_id"] for x in traders}
+    rows=db.table("bank_requisites").select("*").eq("is_active",True).order("trader_id").order("slot").execute().data or []
+    return [dict(x,trader_user_id=owner[x["trader_id"]]) for x in rows if x["trader_id"] in ids]
+def deposit_banks_kb(rows):
+    b=InlineKeyboardBuilder()
+    for x in rows:b.button(text=f"🏦 {x['bank_name']} · {x['country']} · #{x['slot']}"[:60],callback_data=f"bankdep:{x['id']}")
+    b.adjust(1);return b.as_markup()
+def requisites_kb(rows,code):
+    b=InlineKeyboardBuilder();existing={int(x["slot"]) for x in rows}
+    label={"ru":"Реквизиты","en":"Bank details","kk":"Реквизиттер"}.get(code,"Bank details")
+    for x in rows:b.button(text=f"✏️ {label} #{x['slot']} · {x['bank_name']}"[:60],callback_data=f"trader:req:slot:{x['slot']}")
+    for n in range(1,4):
+        if n not in existing:b.button(text=f"➕ {label} #{n}",callback_data=f"trader:req:slot:{n}")
+    b.button(text=trader_ui(code,"add"),callback_data="trader:req:add");b.button(text=HOME_COPY.get(code,HOME_COPY["ru"])[11],callback_data="menu:home");b.adjust(1);return b.as_markup()
+def balance_kb(code="ru",is_trader=False):
+    labels=HOME_COPY.get(code,HOME_COPY["ru"]);b=InlineKeyboardBuilder()
+    b.button(text="📦 "+deposit_label(code),callback_data="menu:deposit");b.button(text=labels[7],callback_data="menu:withdraw")
+    if is_trader:b.button(text=trader_ui(code,"my"),callback_data="trader:requisites")
+    b.button(text=labels[11],callback_data="menu:home");b.adjust(1,2,1,1);return b.as_markup()
+
+async def latest_kzt_usd_rate():
+    async with httpx.AsyncClient(timeout=10) as client:
+        res=await client.get("https://api.frankfurter.dev/v2/rate/kzt/usd");res.raise_for_status();data=res.json()
+    rate=Decimal(str(data["rate"]));day=datetime.strptime(data["date"],"%Y-%m-%d").date()
+    if rate<=0 or (datetime.now(timezone.utc).date()-day).days>4:raise ValueError("stale KZT/USD rate")
+    return rate,day
+def parse_money_input(text):
+    try:v=Decimal((text or "").replace(" ","").replace(",",".")).quantize(Decimal("0.01"))
+    except (InvalidOperation,ValueError):return None
+    return v if v.is_finite() and v>0 else None
+def bank_review_kb(receipt_id):
+    b=InlineKeyboardBuilder();b.button(text="✅ Подтвердить",callback_data=f"fiat:confirm:{receipt_id}");b.button(text="❌ Отклонить",callback_data=f"fiat:reject:{receipt_id}");b.button(text="✏️ Другая сумма пополнения",callback_data=f"fiat:other:{receipt_id}");b.adjust(1);return b.as_markup()
+
+async def send_fiat_review(receipt_id):
+    d=(db.table("bank_deposits").select("*").eq("id",receipt_id).limit(1).execute().data or [None])[0]
+    if not d:return False
+    u=(db.table("bot_users").select("*").eq("id",d["customer_user_id"]).limit(1).execute().data or [{}])[0]
+    t=(db.table("p2p_traders").select("*").eq("id",d["trader_id"]).eq("status","active").limit(1).execute().data or [])
+    if not t:return False
+    tu=(db.table("bot_users").select("telegram_id").eq("id",t[0]["user_id"]).limit(1).execute().data or [])
+    targets={int(tu[0]["telegram_id"])} if tu else set();targets|=admin_ids()
+    cap=(f"🧾 <b>Чек #{d['receipt_number']}</b>\nКлиент: @{u.get('username') or '—'}\n"
+         f"В чеке: <b>{money(d['requested_amount_kzt'])} KZT</b>\nКурс: 1 KZT = {d['fx_usd_per_kzt']} USDT ({d['fx_rate_date']})\n"
+         f"Ожидается: <b>{money(Decimal(str(d['requested_amount_kzt']))*Decimal(str(d['fx_usd_per_kzt'])))} USDT</b>")
+    delivered=0
+    for target in targets:
+        try:
+            if d["receipt_kind"]=="photo":await bot.send_photo(target,d["receipt_file_id"],caption=cap,reply_markup=bank_review_kb(receipt_id))
+            else:await bot.send_document(target,d["receipt_file_id"],caption=cap,reply_markup=bank_review_kb(receipt_id))
+            delivered+=1
+        except Exception:logging.exception("bank receipt delivery failed")
+    return delivered>0
+
+async def send_bank_choice(message,state,tg):
+    code=locale_for(tg.id);u=ensure_user(tg)
+    if not u:await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code));return
+    if u["is_blocked"]:await message.answer(flow(code,"restricted"),reply_markup=back_kb(code));return
+    if Decimal(str(u["balance"]))>=THRESHOLD:await message.answer(f"{deposit_label(code)}: {money(u['balance'])} / 270 USDT",reply_markup=back_kb(code));return
+    pending=db.table("bank_deposits").select("id").eq("customer_user_id",u["id"]).eq("status","pending").limit(1).execute().data or []
+    if pending:await message.answer(flow_extra(code,"receipt_pending"),reply_markup=back_kb(code));return
+    rows=bank_requisites_for_traders()
+    if not rows:await message.answer(flow(code,"no_details"),reply_markup=back_kb(code));return
+    await state.clear();await message.answer(flow(code,"details"),reply_markup=deposit_banks_kb(rows))
+
+def bank_requisites_page_kb(rows,code):return requisites_kb(rows,code)
+
+
+@dp.callback_query(F.data.startswith("bankdep:"))
+async def choose_bank_deposit(call:CallbackQuery,state:FSMContext):
+    code=locale_for(call.from_user.id);rid=call.data.split(":",1)[1]
+    rows=db.table("bank_requisites").select("*").eq("id",rid).eq("is_active",True).limit(1).execute().data or []
+    if not rows:await call.answer(flow(code,"no_details"),show_alert=True);return
+    req=rows[0]
+    owner=db.table("p2p_traders").select("id").eq("id",req["trader_id"]).eq("status","active").limit(1).execute().data or []
+    if not owner:await call.answer(flow(code,"no_details"),show_alert=True);return
+    await state.clear();await state.set_state(FiatDeposit.amount_kzt);await state.update_data(bank_requisite_id=rid,trader_id=req["trader_id"])
+    await call.message.edit_text(f"🏦 <b>{req['bank_name']} · {req['country']}</b>\n{trader_ui(code,'card')} <code>{req['card_requisites']}</code>\n{trader_ui(code,'holder')} <b>{req['holder_name']}</b>\n\n{kzt_amount_label(code)}",reply_markup=back_kb(code))
+    await call.answer()
+
+@dp.message(FiatDeposit.amount_kzt)
+async def fiat_amount(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);amount=parse_money_input(message.text)
+    if amount is None:await message.answer(flow(code,"invalid_amount"));return
+    user=ensure_user(message.from_user)
+    if not user:await state.clear();await message.answer(flow(code,"unregistered"));return
+    try:rate,rate_day=await latest_kzt_usd_rate()
+    except Exception:
+        logging.exception("KZT/USD rate unavailable");await message.answer("Не удалось получить курс. Повторите позже.");return
+    approx=(amount*rate).quantize(Decimal("0.01"),rounding=ROUND_HALF_UP)
+    if approx>THRESHOLD-Decimal(str(user["balance"])):
+        await message.answer(f"{kzt_cap_label(code)}\n{flow(code,'receive')}: <b>{money(approx)} USDT</b>");return
+    await state.update_data(requested_amount_kzt=str(amount),fx_usd_per_kzt=str(rate),fx_rate_date=rate_day.isoformat())
+    await state.set_state(FiatDeposit.receipt)
+    await message.answer(f"{flow(code,'receive')}: <b>≈ {money(approx)} USDT</b>\n1 KZT = <b>{rate} USDT</b> ({rate_day})\n\n{flow_extra(code,'receipt_instruction')}",reply_markup=back_kb(code))
+
+@dp.message(FiatDeposit.receipt)
+async def fiat_receipt(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);data=await state.get_data()
+    if message.photo:kind="photo";fileid=message.photo[-1].file_id;unique=message.photo[-1].file_unique_id
+    elif message.document:kind="document";fileid=message.document.file_id;unique=message.document.file_unique_id
+    else:await message.answer(flow_extra(code,"receipt_instruction"));return
+    user=ensure_user(message.from_user)
+    if not user:await state.clear();await message.answer(flow(code,"unregistered"));return
+    try:
+        dep=db.table("bank_deposits").insert({"customer_user_id":user["id"],"trader_id":data["trader_id"],"bank_requisite_id":data["bank_requisite_id"],"requested_amount_kzt":float(data["requested_amount_kzt"]),"fx_usd_per_kzt":float(data["fx_usd_per_kzt"]),"fx_rate_date":data["fx_rate_date"],"receipt_file_id":fileid,"receipt_kind":kind,"receipt_unique_id":unique,"status":"pending"}).execute().data[0]
+        sent=await send_fiat_review(dep["id"])
+    except Exception:
+        logging.exception("fiat receipt submission failed");await message.answer(error_copy(code,"deposit"));return
+    await state.clear()
+    if not sent:await message.answer("Чек сохранён, но уведомление трейдеру не доставлено. Обратитесь в поддержку.",reply_markup=home_kb(code));return
+    await message.answer(flow_extra(code,"receipt_pending"),reply_markup=home_kb(code))
+
+@dp.callback_query(F.data=="trader:requisites")
+async def trader_requisites(call:CallbackQuery):
+    code=locale_for(call.from_user.id);trader=trader_for_user(call.from_user.id)
+    if not trader:await call.answer(trader_ui(code,"only"),show_alert=True);return
+    rows=db.table("bank_requisites").select("*").eq("trader_id",trader["id"]).order("slot").execute().data or []
+    body="\n\n".join(f"🏦 <b>Реквизиты #{x['slot']}</b>\n{x['bank_name']} · {x['country']}\n<code>{x['card_requisites']}</code>\n{x['holder_name']}" for x in rows) or flow(code,"no_details")
+    await call.message.edit_text(f"{trader_ui(code,'my')}\n\n{body}",reply_markup=bank_requisites_page_kb(rows,code));await call.answer()
+
+@dp.callback_query(F.data=="trader:req:add")
+async def trader_add_requisite(call:CallbackQuery,state:FSMContext):
+    code=locale_for(call.from_user.id);trader=trader_for_user(call.from_user.id)
+    if not trader:await call.answer(trader_ui(code,"only"),show_alert=True);return
+    rows=db.table("bank_requisites").select("slot").eq("trader_id",trader["id"]).execute().data or []
+    used={int(x["slot"]) for x in rows};slot=next((n for n in range(1,4) if n not in used),None)
+    if slot is None:await call.answer("Все 3 слота заняты — выберите номер для замены.",show_alert=True);return
+    await state.clear();await state.set_state(TraderBank.bank_name);await state.update_data(slot=slot)
+    await call.message.answer(f"Реквизиты #{slot}\n{trader_ui(code,'bank')}");await call.answer()
+
+@dp.callback_query(F.data.startswith("trader:req:slot:"))
+async def trader_edit_requisite(call:CallbackQuery,state:FSMContext):
+    code=locale_for(call.from_user.id)
+    if not trader_for_user(call.from_user.id):await call.answer(trader_ui(code,"only"),show_alert=True);return
+    try:slot=int(call.data.rsplit(":",1)[1])
+    except ValueError:await call.answer("Invalid slot",show_alert=True);return
+    if slot not in (1,2,3):await call.answer("Invalid slot",show_alert=True);return
+    await state.clear();await state.set_state(TraderBank.bank_name);await state.update_data(slot=slot)
+    await call.message.answer(f"Реквизиты #{slot}\n{trader_ui(code,'bank')}");await call.answer()
+
+@dp.message(TraderBank.bank_name)
+async def trader_bank_name(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);value=(message.text or "").strip()
+    if not value or len(value)>120:await message.answer(trader_ui(code,"bank"));return
+    await state.update_data(bank_name=value);await state.set_state(TraderBank.country);await message.answer(trader_ui(code,"country"))
+
+@dp.message(TraderBank.country)
+async def trader_bank_country(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);value=(message.text or "").strip()
+    if not value or len(value)>100:await message.answer(trader_ui(code,"country"));return
+    await state.update_data(country=value);await state.set_state(TraderBank.card);await message.answer(trader_ui(code,"card"))
+
+@dp.message(TraderBank.card)
+async def trader_bank_card(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);value=(message.text or "").strip()
+    if not value or len(value)>300:await message.answer(trader_ui(code,"card"));return
+    await state.update_data(card=value);await state.set_state(TraderBank.holder);await message.answer(trader_ui(code,"holder"))
+
+@dp.message(TraderBank.holder)
+async def trader_bank_holder(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);value=(message.text or "").strip();trader=trader_for_user(message.from_user.id);data=await state.get_data()
+    if not value or len(value)>160:await message.answer(trader_ui(code,"holder"));return
+    if not trader:await state.clear();await message.answer(trader_ui(code,"only"));return
+    try:db.table("bank_requisites").upsert({"trader_id":trader["id"],"slot":data["slot"],"bank_name":data["bank_name"],"country":data["country"],"card_requisites":data["card"],"holder_name":value,"is_active":True,"updated_at":now()},on_conflict="trader_id,slot").execute()
+    except Exception:logging.exception("bank requisites save failed");await message.answer(error_copy(code,"deposit"));return
+    await state.clear();await message.answer(trader_ui(code,"saved"),reply_markup=home_kb(code))
+
+async def authorize_fiat_actor(call,receipt):
+    if is_admin(call.from_user.id):return True
+    trader=trader_for_user(call.from_user.id)
+    if trader and trader["id"]==receipt["trader_id"]:return True
+    await call.answer("Чек назначен другому трейдеру",show_alert=True);return False
+
+@dp.callback_query(F.data.startswith("fiat:confirm:"))
+async def fiat_confirm(call:CallbackQuery):
+    rid=call.data.split(":",2)[2];rows=db.table("bank_deposits").select("*").eq("id",rid).limit(1).execute().data or []
+    if not rows:await call.answer("Чек не найден",show_alert=True);return
+    d=rows[0]
+    if not await authorize_fiat_actor(call,d):return
+    await approve_fiat(call,rid,Decimal(str(d["requested_amount_kzt"])))
+
+@dp.callback_query(F.data.startswith("fiat:other:"))
+async def fiat_other(call:CallbackQuery,state:FSMContext):
+    rid=call.data.split(":",2)[2];rows=db.table("bank_deposits").select("*").eq("id",rid).limit(1).execute().data or []
+    if not rows or rows[0]["status"]!="pending":await call.answer("Чек уже обработан или не найден",show_alert=True);return
+    if not await authorize_fiat_actor(call,rows[0]):return
+    await state.set_state(FiatReview.amount_kzt);await state.update_data(receipt_id=rid)
+    await call.message.answer(trader_ui(locale_for(call.from_user.id),"other"));await call.answer()
+
+@dp.callback_query(F.data.startswith("fiat:reject:"))
+async def fiat_reject(call:CallbackQuery):
+    rid=call.data.split(":",2)[2];rows=db.table("bank_deposits").select("*").eq("id",rid).limit(1).execute().data or []
+    if not rows:await call.answer("Чек не найден",show_alert=True);return
+    if not await authorize_fiat_actor(call,rows[0]):return
+    try:res=db.rpc("reject_bank_deposit",{"p_receipt_id":rid,"p_actor_telegram_id":call.from_user.id,"p_reason":None}).execute().data or {}
+    except Exception:logging.exception("bank receipt reject failed");await call.answer("Ошибка отказа",show_alert=True);return
+    if res.get("ok"):
+        code=locale_for(int(res["telegram_id"]));await notify_user(int(res["telegram_id"]),flow_extra(code,"rejected_user"))
+        await edit_fiat_review_message(call,f"❌ Чек #{res['receipt_number']} отклонён.");await call.answer("Отклонено.")
+    else:await call.answer("Не удалось отклонить",show_alert=True)
+
+async def approve_fiat(call,rid,kzt):
+    try:res=db.rpc("confirm_bank_deposit",{"p_receipt_id":rid,"p_actor_telegram_id":call.from_user.id,"p_received_amount_kzt":float(kzt)}).execute().data or {}
+    except Exception:logging.exception("confirm fiat deposit failed");await call.answer("Не удалось зачислить. Проверьте сумму и лимит 270 USDT.",show_alert=True);return False
+    if not res.get("ok"):await call.answer("Зачисление не выполнено",show_alert=True);return False
+    if not res.get("already_paid"):
+        tg=int(res["telegram_id"]);code=locale_for(tg)
+        await notify_user(tg,f"{flow_extra(code,'paid')}\n\n{money(res['received_amount_kzt'])} KZT → <b>{money(res['credited_usdt'])} USDT</b>\n1 KZT = {res['fx_usd_per_kzt']} USDT ({res['fx_rate_date']})\n{deposit_label(code)}: <b>{money(res['balance'])} / 270 USDT</b>")
+    await edit_fiat_review_message(call,f"✅ Чек #{res['receipt_number']} подтверждён: {money(kzt)} KZT.");await call.answer("Зачисление выполнено.");return True
+
+async def edit_fiat_review_message(call,text):
+    try:
+        if call.message.caption is not None:await call.message.edit_caption(caption=text,reply_markup=None)
+        else:await call.message.edit_text(text,reply_markup=None)
+    except Exception:logging.exception("review message update failed")
+
+@dp.message(FiatReview.amount_kzt)
+async def fiat_manual_amount(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id);amount=parse_money_input(message.text)
+    if amount is None:await message.answer(flow(code,"invalid_amount"));return
+    data=await state.get_data();rid=data.get("receipt_id")
+    rows=db.table("bank_deposits").select("*").eq("id",rid).limit(1).execute().data or []
+    if not rows:await state.clear();await message.answer("Чек не найден.");return
+    d=rows[0];actor=message.from_user.id
+    if not is_admin(actor):
+        trader=trader_for_user(actor)
+        if not trader or trader["id"]!=d["trader_id"]:await state.clear();await message.answer("Нет доступа.");return
+    try:res=db.rpc("confirm_bank_deposit",{"p_receipt_id":rid,"p_actor_telegram_id":actor,"p_received_amount_kzt":float(amount)}).execute().data or {}
+    except Exception:logging.exception("manual bank receipt confirmation failed");await message.answer(kzt_cap_label(code));return
+    if res.get("ok"):
+        tg=int(res["telegram_id"]);uc=locale_for(tg)
+        await notify_user(tg,f"{flow_extra(uc,'paid')}\n{money(res['received_amount_kzt'])} KZT → <b>{money(res['credited_usdt'])} USDT</b>\n{deposit_label(uc)}: <b>{money(res['balance'])} / 270 USDT</b>")
+        await message.answer(f"✅ Чек #{res['receipt_number']}: {money(amount)} KZT → {money(res['credited_usdt'])} USDT")
+    await state.clear()
+
+@dp.message(Command("trader_add"))
+async def trader_add(message:Message):
+    if not is_admin(message.from_user.id):await message.answer("⛔ Нет доступа.");return
+    parts=(message.text or "").split(maxsplit=1)
+    if len(parts)!=2 or not parts[1].isdigit():await message.answer("Использование: /trader_add TELEGRAM_ID");return
+    u=get_user(int(parts[1]))
+    if not u:await message.answer("Пользователь должен сначала зарегистрироваться.");return
+    db.table("p2p_traders").upsert({"user_id":u["id"],"status":"active","max_volume_usdt":270,"updated_at":now()},on_conflict="user_id").execute()
+    await message.answer(f"✅ Трейдер активирован: @{u.get('username') or u['telegram_id']}.")
+
+async def expiry_loop():
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -384,7 +663,7 @@ def home_text(u):
     c=HOME_COPY.get(code,HOME_COPY["ru"])
     name=u.get("first_name") or c[1]
     balance_value=money(u["balance"])
-    return (f"👋 <b>4% TRADER</b>\n<i>{c[0]}</i>\n\n{c[1]}, <b>{name}</b>!\n\n💰 <b>{c[2]}</b>\n<code>{balance_value} USDT</code>\n\n🟢 <b>{c[3]}</b>\n{c[4]}")
+    return (f"👋 <b>4% TRADER</b>\n<i>{c[0]}</i>\n\n{c[1]}, <b>{name}</b>!\n\n📦 <b>Депозит 270 USDT</b>\n<code>{balance_value} / 270 USDT</code>\n\n🟢 <b>{c[3]}</b>\n{c[4]}")
 
 async def show_home(target,tg):
     row=ensure_identity(tg)
@@ -402,17 +681,7 @@ async def show_home(target,tg):
         await target.answer(text,reply_markup=markup)
 
 async def start_deposit_flow(message,state,tg):
-    code=locale_for(tg.id)
-    u=ensure_user(tg)
-    if not u: await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
-    if u["is_blocked"]: await message.answer(flow(code,"restricted"),reply_markup=back_kb(code)); return
-    if Decimal(str(u["balance"]))>=THRESHOLD:
-        await message.answer(f"⚠️ <b>{flow(code,'deposit')}</b>\n{flow_extra(code,'unavailable')}",reply_markup=back_kb(code)); return
-    if open_order(u["id"]):
-        await message.answer(f"⚠️ {flow_extra(code,'open_deposit')}",reply_markup=back_kb(code)); return
-    minimum=min(MIN_DEPOSIT, THRESHOLD-Decimal(str(u["balance"])))
-    await state.set_state(Deposit.amount)
-    await message.answer(amount_prompt(code,minimum),reply_markup=back_kb(code))
+    await send_bank_choice(message,state,tg)
 
 @dp.callback_query(F.data == "menu:home")
 async def menu_home(call: CallbackQuery, state: FSMContext):
@@ -424,7 +693,8 @@ async def menu_balance(call: CallbackQuery):
     code=locale_for(call.from_user.id)
     u=ensure_user(call.from_user)
     if not u: await call.answer(flow(code,"unregistered"),show_alert=True); return
-    await call.message.edit_text(f"💳 <b>{flow(code,'balance')}</b>\n\n<b>{money(u['balance'])} USDT</b>\n{flow_extra(code,'network_label')}: <b>TRC20</b>",reply_markup=balance_kb(code))
+    is_trader=is_active_trader(call.from_user.id)
+    await call.message.edit_text(f"📦 <b>{deposit_label(code)}</b>\n\n<b>{money(u['balance'])} / 270 USDT</b>",reply_markup=balance_kb(code,is_trader))
     await call.answer()
 
 @dp.callback_query(F.data == "menu:withdraw")
@@ -434,7 +704,7 @@ async def menu_withdraw(call: CallbackQuery,state:FSMContext):
     if not u: await call.answer(flow(code,"unregistered"),show_alert=True); return
     bal=Decimal(str(u["balance"]))
     if bal<THRESHOLD:
-        await call.message.edit_text(f"📤 <b>{flow(code,'withdraw')}</b>\n\n{flow(code,'available')} <b>500 USDT</b>.\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>.",reply_markup=back_kb(code))
+        await call.message.edit_text(f"📤 <b>{flow(code,'withdraw')}</b>\n\n{flow(code,'available')} <b>270 USDT</b>.\n{deposit_label(code)}: <b>{money(bal)} / 270 USDT</b>.",reply_markup=back_kb(code))
         await call.answer(); return
     if open_withdrawal(u["id"]):
         await call.message.edit_text(f"⏳ {flow(code,'open_withdraw')}",reply_markup=back_kb(code)); await call.answer(); return
@@ -529,7 +799,7 @@ async def history(message: Message):
     for x in rows:
         amount = Decimal(str(x["amount"]))
         sign = "+" if amount > 0 else ""
-        lines.append(f"{str(x['created_at']).replace('T',' ')[:16]} — {sign}{money(amount)} ₸ — {x['type']}")
+        lines.append(f"{str(x['created_at']).replace('T',' ')[:16]} — {sign}{money(amount)} USDT — {x['type']}")
     await message.answer("\n".join(lines),reply_markup=back_kb(code))
 
 @dp.message(F.text == "💳 Реквизиты")
@@ -552,7 +822,7 @@ async def language(message: Message):
 
 @dp.message(F.text == "💳 Пополнить баланс")
 async def deposit_start(message: Message, state: FSMContext):
-    await start_deposit_flow(message, state, message.from_user)
+    await send_bank_choice(message,state,message.from_user)
 
 @dp.message(Deposit.amount)
 async def deposit_amount(message:Message,state:FSMContext):
@@ -718,7 +988,7 @@ async def withdrawal_address(message:Message,state:FSMContext):
     except Exception:
         logging.exception("withdrawal create failed"); await message.answer(error_copy(code,"withdraw")); return
     await state.clear()
-    await message.answer(f"📤 <b>{flow_extra(code,'withdraw_created')}</b>\n\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>\n{flow(code,'fee')}: <b>{money(fee)} USDT</b>\n{flow(code,'receive')}: <b>{money(net)} USDT</b>\n\n{flow_extra(code,'address_label')}:\n<code>{addr}</code>",reply_markup=home_kb(code))
+    await message.answer(f"📤 <b>{flow_extra(code,'withdraw_created')}</b>\n\n{deposit_label(code)}: <b>{money(bal)} / 270 USDT</b>\n{flow(code,'fee')}: <b>{money(fee)} USDT</b>\n{flow(code,'receive')}: <b>{money(net)} USDT</b>\n\n{flow_extra(code,'address_label')}:\n<code>{addr}</code>",reply_markup=home_kb(code))
     await notify_withdrawal_admins(wd["id"])
 
 async def notify_withdrawal_admins(wid):
@@ -772,8 +1042,8 @@ async def claim_admin(message: Message):
 @dp.message(Command("admin"))
 async def admin(message:Message):
     if not is_admin(message.from_user.id): await message.answer("⛔ Нет доступа."); return
-    p=db.table("orders").select("id",count="exact").eq("status","under_review").execute(); wd=db.table("withdrawals").select("id",count="exact").in_("status",["pending","processing"]).execute(); u=db.table("bot_users").select("id",count="exact").execute()
-    await message.answer(f"👨‍💻 <b>Админ-панель</b>\n\n📥 Депозиты: <b>{p.count or 0}</b>\n📤 Выводы: <b>{wd.count or 0}</b>\n👥 Пользователи: <b>{u.count or 0}</b>\n\n/orders — депозиты\n/withdrawals — выводы\n/stats — комиссия")
+    p=db.table("bank_deposits").select("id",count="exact").eq("status","pending").execute(); wd=db.table("withdrawals").select("id",count="exact").in_("status",["pending","processing"]).execute(); u=db.table("bot_users").select("id",count="exact").execute()
+    await message.answer(f"👨‍💻 <b>Админ-панель</b>\n\n🧾 Чеки на проверке: <b>{p.count or 0}</b>\n📤 Выводы: <b>{wd.count or 0}</b>\n👥 Пользователи: <b>{u.count or 0}</b>\n\n/bankdeposits — банковские чеки\n/trader_add TELEGRAM_ID — активировать трейдера\n/withdrawals — выводы\n/stats — комиссия")
 
 @dp.message(Command("orders"))
 async def orders(message:Message):
