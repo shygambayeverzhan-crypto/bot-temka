@@ -91,6 +91,12 @@ AUTH_PROMPTS = {
 "kk":{"login":"Логиніңізді енгізіңіз:","password":"Парольді енгізіңіз. Тексеруден кейін хабарлама жойылады.","failed":"Логин немесе пароль қате. Қайталап көріңіз.","success":"✅ Сіз жүйеге кірдіңіз.","docs":"Қол жеткізу деректерін әкімші береді. Парольді басқа адамдарға жібермеңіз."},
 "en":{"login":"Enter your login:","password":"Enter your password. This message will be deleted after verification.","failed":"Incorrect login or password. Please try again.","success":"✅ You are signed in.","docs":"Access credentials are issued by an administrator. Do not share your password. The password message is deleted after verification."},
 }
+def locale_for(telegram_id):
+    rows = db.table("bot_users").select("language").eq("telegram_id", telegram_id).limit(1).execute().data or []
+    code = rows[0].get("language") if rows else "ru"
+    return code if code in AUTH_COPY else "ru"
+
+
 def ui(code,key):
     values=AUTH_COPY.get(code,AUTH_COPY["ru"])
     return values[AUTH_KEYS.index(key)]
@@ -742,7 +748,7 @@ async def auth_password(message:Message,state:FSMContext):
         await state.clear()
         if user.get("is_blocked"): await message.answer("⛔ Доступ ограничен."); return
         await message.answer(f"{auth_prompt(code,'success')}\n\n{home_text(user)}",reply_markup=home_kb()); return
-    if credential:
+    if credential and int(credential["telegram_id"]) == message.from_user.id:
         failures=int(credential.get("failed_attempts") or 0)+1
         update={"failed_attempts":failures,"updated_at":now()}
         if failures>=5: update.update({"failed_attempts":0,"locked_until":(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat()})
