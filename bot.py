@@ -79,7 +79,7 @@ def back_kb():
 
 
 def get_user(tg_id):
-    r = db.table("business_users").select("*").eq("telegram_id", tg_id).limit(1).execute()
+    r = db.table("business_bot_users").select("*").eq("telegram_id", tg_id).limit(1).execute()
     return r.data[0] if r.data else None
 
 
@@ -93,22 +93,22 @@ def ensure_user(tg):
         "updated_at": now(),
     }
     if existing:
-        db.table("business_users").update(data).eq("telegram_id", tg.id).execute()
+        db.table("business_bot_users").update(data).eq("telegram_id", tg.id).execute()
         existing.update(data)
         return existing
     data["created_at"] = now()
-    return db.table("business_users").insert(data).execute().data[0]
+    return db.table("business_bot_users").insert(data).execute().data[0]
 
 
 def home_text(user):
     name = user.get("first_name") or "предприниматель"
     uid = user["id"]
-    income = db.table("transactions").select("amount").eq("user_id", uid).eq("type", "income").execute().data or []
-    expense = db.table("transactions").select("amount").eq("user_id", uid).eq("type", "expense").execute().data or []
+    income = db.table("business_bot_transactions").select("amount").eq("user_id", uid).eq("type", "income").execute().data or []
+    expense = db.table("business_bot_transactions").select("amount").eq("user_id", uid).eq("type", "expense").execute().data or []
     total_income = sum(Decimal(str(x["amount"])) for x in income)
     total_expense = sum(Decimal(str(x["amount"])) for x in expense)
-    clients = len(db.table("clients").select("id").eq("user_id", uid).execute().data or [])
-    tasks = len(db.table("tasks").select("id").eq("user_id", uid).eq("status", "open").execute().data or [])
+    clients = len(db.table("business_bot_clients").select("id").eq("user_id", uid).execute().data or [])
+    tasks = len(db.table("business_bot_tasks").select("id").eq("user_id", uid).eq("status", "open").execute().data or [])
     return (
         f"👋 <b>БИЗНЕС БОТ</b>\n"
         f"<i>Твой бизнес — прямо в Telegram</i>\n\n"
@@ -147,7 +147,7 @@ async def home(call: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "menu:finance")
 async def finance(call: CallbackQuery):
     u = ensure_user(call.from_user)
-    rows = db.table("transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(8).execute().data or []
+    rows = db.table("business_bot_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(8).execute().data or []
     income = sum(Decimal(str(x["amount"])) for x in rows if x["type"] == "income")
     expense = sum(Decimal(str(x["amount"])) for x in rows if x["type"] == "expense")
     text = (
@@ -205,7 +205,7 @@ async def finance_amount(message: Message, state: FSMContext):
 async def finance_description(message: Message, state: FSMContext):
     data = await state.get_data()
     u = ensure_user(message.from_user)
-    db.table("transactions").insert({
+    db.table("business_bot_transactions").insert({
         "user_id": u["id"],
         "type": data["type"],
         "amount": data["amount"],
@@ -224,7 +224,7 @@ async def finance_description(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "finance:history")
 async def finance_history(call: CallbackQuery):
     u = ensure_user(call.from_user)
-    rows = db.table("transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(30).execute().data or []
+    rows = db.table("business_bot_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(30).execute().data or []
     if not rows:
         text = "📜 <b>История</b>\n\nОпераций пока нет."
     else:
@@ -241,7 +241,7 @@ async def finance_history(call: CallbackQuery):
 @dp.callback_query(F.data == "menu:clients")
 async def clients(call: CallbackQuery):
     u = ensure_user(call.from_user)
-    rows = db.table("clients").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(15).execute().data or []
+    rows = db.table("business_bot_clients").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(15).execute().data or []
     text = "👥 <b>Клиенты</b>\n\n"
     if not rows:
         text += "Клиентов пока нет."
@@ -284,7 +284,7 @@ async def client_phone(message: Message, state: FSMContext):
 async def client_note(message: Message, state: FSMContext):
     data = await state.get_data()
     u = ensure_user(message.from_user)
-    db.table("clients").insert({
+    db.table("business_bot_clients").insert({
         "user_id": u["id"],
         "name": data["name"],
         "phone": None if (message.text or "").lower() == "пропустить" else data["phone"],
@@ -298,7 +298,7 @@ async def client_note(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "menu:tasks")
 async def tasks(call: CallbackQuery):
     u = ensure_user(call.from_user)
-    rows = db.table("tasks").select("*").eq("user_id", u["id"]).eq("status", "open").order("created_at", desc=True).limit(20).execute().data or []
+    rows = db.table("business_bot_tasks").select("*").eq("user_id", u["id"]).eq("status", "open").order("created_at", desc=True).limit(20).execute().data or []
     text = "📋 <b>Задачи</b>\n\n"
     if not rows:
         text += "Открытых задач нет."
@@ -341,7 +341,7 @@ async def task_due(message: Message, state: FSMContext):
             return
     data = await state.get_data()
     u = ensure_user(message.from_user)
-    db.table("tasks").insert({
+    db.table("business_bot_tasks").insert({
         "user_id": u["id"],
         "title": data["title"],
         "due_date": due,
@@ -355,11 +355,11 @@ async def task_due(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "menu:analytics")
 async def analytics(call: CallbackQuery):
     u = ensure_user(call.from_user)
-    tx = db.table("transactions").select("*").eq("user_id", u["id"]).execute().data or []
+    tx = db.table("business_bot_transactions").select("*").eq("user_id", u["id"]).execute().data or []
     inc = sum(Decimal(str(x["amount"])) for x in tx if x["type"] == "income")
     exp = sum(Decimal(str(x["amount"])) for x in tx if x["type"] == "expense")
-    clients_count = len(db.table("clients").select("id").eq("user_id", u["id"]).execute().data or [])
-    open_tasks = len(db.table("tasks").select("id").eq("user_id", u["id"]).eq("status", "open").execute().data or [])
+    clients_count = len(db.table("business_bot_clients").select("id").eq("user_id", u["id"]).execute().data or [])
+    open_tasks = len(db.table("business_bot_tasks").select("id").eq("user_id", u["id"]).eq("status", "open").execute().data or [])
     text = (
         f"📊 <b>Аналитика</b>\n\n"
         f"💰 Доход: <b>{money(inc)} ₸</b>\n"
