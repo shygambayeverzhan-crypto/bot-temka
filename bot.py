@@ -323,13 +323,16 @@ async def show_home(target,tg):
         await target.answer(text,reply_markup=markup)
 
 async def start_deposit_flow(message,state,tg):
+    code=locale_for(tg.id)
     u=ensure_user(tg)
-    if not u: await message.answer("👋 Сначала зарегистрируйтесь.",reply_markup=register_kb()); return
-    if u["is_blocked"]: await message.answer("⛔ <b>Доступ ограничен.</b>",reply_markup=back_kb(locale_for(message.from_user.id))); return
-    if Decimal(str(u["balance"]))>=THRESHOLD: await message.answer("⚠️ <b>Пополнение недоступно.</b>\nСначала необходимо вывести весь баланс.",reply_markup=back_kb(locale_for(message.from_user.id))); return
-    if open_order(u["id"]): await message.answer("⚠️ У вас уже есть открытая заявка на депозит.",reply_markup=back_kb(locale_for(message.from_user.id))); return
+    if not u: await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
+    if u["is_blocked"]: await message.answer(flow(code,"restricted"),reply_markup=back_kb(code)); return
+    if Decimal(str(u["balance"]))>=THRESHOLD:
+        await message.answer(f"⚠️ {flow(code,'deposit')} unavailable.\nPlease withdraw your full balance first.",reply_markup=back_kb(code)); return
+    if open_order(u["id"]):
+        await message.answer(f"⚠️ You already have an open deposit request.",reply_markup=back_kb(code)); return
     await state.set_state(Deposit.amount)
-    await message.answer(f"💰 <b>Пополнение</b>\n\nВведите сумму USDT.\nМинимум: <b>{money(MIN_DEPOSIT)} USDT</b>\nСеть: <b>TRC20</b>",reply_markup=back_kb(locale_for(message.from_user.id)))
+    await message.answer(amount_prompt(code),reply_markup=back_kb(code))
 
 @dp.callback_query(F.data == "menu:home")
 async def menu_home(call: CallbackQuery, state: FSMContext):
@@ -338,20 +341,27 @@ async def menu_home(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "menu:balance")
 async def menu_balance(call: CallbackQuery):
+    code=locale_for(call.from_user.id)
     u=ensure_user(call.from_user)
-    if not u: await call.answer("Сначала зарегистрируйтесь.",show_alert=True); return
-    await call.message.edit_text(f"💳 <b>Ваш баланс</b>\n\n<b>{money(u['balance'])} USDT</b>\nСеть: <b>TRC20</b>",reply_markup=balance_kb(locale_for(call.from_user.id))); await call.answer()
+    if not u: await call.answer(flow(code,"unregistered"),show_alert=True); return
+    await call.message.edit_text(f"💳 <b>{flow(code,'balance')}</b>\n\n<b>{money(u['balance'])} USDT</b>\nNetwork: <b>TRC20</b>",reply_markup=balance_kb(code))
+    await call.answer()
 
 @dp.callback_query(F.data == "menu:withdraw")
 async def menu_withdraw(call: CallbackQuery,state:FSMContext):
+    code=locale_for(call.from_user.id)
     u=ensure_user(call.from_user)
-    if not u: await call.answer("Сначала зарегистрируйтесь.",show_alert=True); return
+    if not u: await call.answer(flow(code,"unregistered"),show_alert=True); return
     bal=Decimal(str(u["balance"]))
-    if bal<THRESHOLD: await call.message.edit_text(f"📤 <b>Вывод</b>\n\nВывод доступен при балансе от <b>500 USDT</b>.\nСейчас: <b>{money(bal)} USDT</b>.",reply_markup=back_kb(locale_for(call.from_user.id))); await call.answer(); return
-    if open_withdrawal(u["id"]): await call.message.edit_text("⏳ У вас уже есть заявка на вывод.",reply_markup=back_kb(locale_for(call.from_user.id))); await call.answer(); return
+    if bal<THRESHOLD:
+        await call.message.edit_text(f"📤 <b>{flow(code,'withdraw')}</b>\n\n{flow(code,'available')} <b>500 USDT</b>.\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>.",reply_markup=back_kb(code))
+        await call.answer(); return
+    if open_withdrawal(u["id"]):
+        await call.message.edit_text(f"⏳ {flow(code,'open_withdraw')}",reply_markup=back_kb(code)); await call.answer(); return
     fee=(bal*FEE_RATE).quantize(Decimal("0.01"),rounding=ROUND_DOWN); net=bal-fee
     await state.set_state(Withdrawal.address)
-    await call.message.edit_text(f"📤 <b>Обязательный вывод</b>\n\nБаланс: <b>{money(bal)} USDT</b>\nКомиссия 4%: <b>{money(fee)} USDT</b>\nК получению: <b>{money(net)} USDT</b>\n\nВведите адрес USDT TRC20:",reply_markup=back_kb(locale_for(call.from_user.id))); await call.answer()
+    await call.message.edit_text(f"📤 <b>{flow(code,'mandatory')}</b>\n\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>\n{flow(code,'fee')}: <b>{money(fee)} USDT</b>\n{flow(code,'receive')}: <b>{money(net)} USDT</b>\n\n{flow(code,'enter_tron')}",reply_markup=back_kb(code))
+    await call.answer()
 
 @dp.callback_query(F.data == "menu:help")
 async def menu_help(call: CallbackQuery):
@@ -359,20 +369,23 @@ async def menu_help(call: CallbackQuery):
 
 @dp.callback_query(F.data == "menu:history")
 async def menu_history(call: CallbackQuery):
-    u = ensure_user(call.from_user)
-    rows = db.table("balance_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(8).execute().data or []
+    code=locale_for(call.from_user.id)
+    u=ensure_user(call.from_user)
+    if not u:
+        await call.answer(flow(code,"unregistered"),show_alert=True); return
+    rows=db.table("balance_transactions").select("*").eq("user_id",u["id"]).order("created_at",desc=True).limit(8).execute().data or []
     if not rows:
-        text = "📜 <b>История операций</b>\n\nПока операций нет."
+        text=f"📜 <b>{flow(code,'history')}</b>\n\n{flow(code,'no_history')}"
     else:
-        lines = ["📜 <b>История операций</b>", ""]
+        labels={"deposit":flow(code,"deposit"),"withdrawal":flow(code,"withdraw"),"adjustment":"Adjustment"}
+        lines=[f"📜 <b>{flow(code,'history')}</b>",""]
         for x in rows:
-            amount = Decimal(str(x["amount"]))
-            sign = "+" if amount > 0 else ""
-            date = str(x["created_at"]).replace("T", " ")[:16]
-            label = {"deposit": "Пополнение", "withdrawal": "Вывод", "adjustment": "Корректировка"}.get(x["type"], x["type"])
-            lines.append(f"<code>{date}</code>  <b>{sign}{money(amount)} ₸</b>\n{label}")
-        text = "\n".join(lines)
-    await call.message.edit_text(text, reply_markup=back_kb(locale_for(call.from_user.id)))
+            amount=Decimal(str(x["amount"]))
+            sign="+" if amount>0 else ""
+            date=str(x["created_at"]).replace("T"," ")[:16]
+            lines.append(f"<code>{date}</code>  <b>{sign}{money(amount)} USDT</b>\n{labels.get(x['type'],x['type'])}")
+        text="\n".join(lines)
+    await call.message.edit_text(text,reply_markup=back_kb(code))
     await call.answer()
 
 @dp.callback_query(F.data == "menu:wallets")
@@ -458,17 +471,23 @@ async def deposit_start(message: Message, state: FSMContext):
 
 @dp.message(Deposit.amount)
 async def deposit_amount(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id)
     try: amount=Decimal((message.text or "").replace(" ","").replace(",",".")).quantize(Decimal("0.01"))
-    except InvalidOperation: await message.answer("❌ Введите число, например <code>250</code>."); return
-    if amount<MIN_DEPOSIT: await message.answer(f"❌ Минимальный депозит: <b>{money(MIN_DEPOSIT)} USDT</b>."); return
+    except InvalidOperation:
+        await message.answer(flow(code,"invalid_amount")); return
+    if amount<MIN_DEPOSIT:
+        await message.answer(f"❌ {flow(code,'minimum')}: <b>{money(MIN_DEPOSIT)} USDT</b>."); return
     u=ensure_user(message.from_user)
-    if not u: await state.clear(); await message.answer("Сначала зарегистрируйтесь.",reply_markup=register_kb()); return
-    if Decimal(str(u["balance"]))>=THRESHOLD: await state.clear(); await message.answer("⚠️ Сначала необходимо вывести весь баланс.",reply_markup=home_kb(locale_for(message.from_user.id))); return
+    if not u:
+        await state.clear(); await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
+    if Decimal(str(u["balance"]))>=THRESHOLD:
+        await state.clear(); await message.answer(f"⚠️ Please withdraw your full balance first.",reply_markup=home_kb(code)); return
     try:
         o=db.table("orders").insert({"user_id":u["id"],"wallet_id":None,"wallet_snapshot":{"network":"TRC20","asset":"USDT","address":ADMIN_TRC20_ADDRESS},"amount":float(amount),"currency":"USDT","network":"TRC20","status":"pending","expires_at":(datetime.now(timezone.utc)+timedelta(minutes=20)).isoformat()}).execute().data[0]
-    except Exception: logging.exception("deposit create failed"); await message.answer("❌ Не удалось создать заявку."); return
+    except Exception:
+        logging.exception("deposit create failed"); await message.answer("❌ Could not create the request."); return
     await state.set_state(Deposit.txid); await state.update_data(order_id=o["id"])
-    await message.answer(f"🧾 <b>Заявка #{o['order_number']}</b>\n\nСумма: <b>{money(amount)} USDT</b>\nСеть: <b>TRC20</b>\n\nАдрес для оплаты:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\nПосле перевода отправьте <b>TXID</b>.",reply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS))
+    await message.answer(f"🧾 <b>Request #{o['order_number']}</b>\n\nAmount: <b>{money(amount)} USDT</b>\nNetwork: <b>TRC20</b>\n\nPayment address:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\nAfter payment, send the <b>TXID</b> or receipt.",reply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS,code))
 
 @dp.message(Deposit.txid)
 async def deposit_txid(message: Message, state: FSMContext):
@@ -601,17 +620,21 @@ def valid_tron_address(addr):
 
 @dp.message(Withdrawal.address)
 async def withdrawal_address(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id)
     addr=(message.text or "").strip()
-    if not valid_tron_address(addr): await message.answer("❌ Некорректный адрес USDT TRC20."); return
+    if not valid_tron_address(addr): await message.answer(flow(code,"invalid_tron")); return
     u=ensure_user(message.from_user)
-    if not u: await state.clear(); await message.answer("Сначала зарегистрируйтесь.",reply_markup=register_kb()); return
+    if not u: await state.clear(); await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
     bal=Decimal(str(u["balance"]))
-    if bal<THRESHOLD: await state.clear(); await message.answer("⚠️ Баланс уже изменился.",reply_markup=home_kb(locale_for(message.from_user.id))); return
+    if bal<THRESHOLD: await state.clear(); await message.answer(f"⚠️ {flow(code,'balance')} changed.",reply_markup=home_kb(code)); return
     fee=(bal*FEE_RATE).quantize(Decimal("0.01"),rounding=ROUND_DOWN); net=bal-fee
     try:
         wd=db.table("withdrawals").insert({"user_id":u["id"],"amount":float(bal),"fee_amount":float(fee),"net_amount":float(net),"currency":"USDT","destination_address":addr,"status":"pending","note":"Mandatory full withdrawal; 4% fee retained by admin."}).execute().data[0]
-    except Exception: logging.exception("withdrawal create failed"); await message.answer("❌ Не удалось создать заявку."); return
-    await state.clear(); await message.answer(f"📤 <b>Заявка создана</b>\n\nБаланс: <b>{money(bal)} USDT</b>\nКомиссия 4%: <b>{money(fee)} USDT</b>\nК получению: <b>{money(net)} USDT</b>\n\nАдрес:\n<code>{addr}</code>\n\nАдминистратор вручную отправит {money(net)} USDT и подтвердит выплату.",reply_markup=home_kb(locale_for(message.from_user.id))); await notify_withdrawal_admins(wd["id"])
+    except Exception:
+        logging.exception("withdrawal create failed"); await message.answer("❌ Could not create the request."); return
+    await state.clear()
+    await message.answer(f"📤 <b>{flow(code,'withdraw')} created</b>\n\n{flow(code,'balance')}: <b>{money(bal)} USDT</b>\n{flow(code,'fee')}: <b>{money(fee)} USDT</b>\n{flow(code,'receive')}: <b>{money(net)} USDT</b>\n\n{flow(code,'address') if 'address' in FLOW_KEYS else 'Address'}:\n<code>{addr}</code>\n\nThe administrator will send {money(net)} USDT manually and confirm the payout.",reply_markup=home_kb(code))
+    await notify_withdrawal_admins(wd["id"])
 
 async def notify_withdrawal_admins(wid):
     rows=db.table("withdrawals").select("*").eq("id",wid).limit(1).execute().data
