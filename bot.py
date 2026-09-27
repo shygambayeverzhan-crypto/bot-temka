@@ -1,6 +1,10 @@
 import asyncio
+import hashlib
+import hmac
 import logging
 import os
+import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
@@ -46,8 +50,81 @@ class Deposit(StatesGroup):
 class Withdrawal(StatesGroup):
     address = State()
 
+class Auth(StatesGroup):
+    login = State()
+    password = State()
+
+
+LANGUAGE_OPTIONS = [
+    ("ru","🇷🇺 Русский"),("en","🇺🇸 English"),("uk","🇺🇦 Українська"),("kk","🇰🇿 Қазақша"),
+    ("pl","🇵🇱 Polski"),("ro","🇲🇩 Română"),("tr","🇹🇷 Türkçe"),("es","🇪🇸 Español"),
+    ("de","🇩🇪 Deutsch"),("ky","🇰🇬 Кыргызча"),("ka","🇬🇪 ქართული"),("zh","🇨🇳 中文"),
+    ("ko","🇰🇷 한국어"),("ar","🇸🇦 العربية"),("ja","🇯🇵 日本語"),("fr","🇫🇷 Français"),
+    ("pt","🇵🇹 Português"),("nl","🇳🇱 Nederlands"),("hi","🇮🇳 हिन्दी"),("sk","🇸🇰 Slovenčina"),
+]
+# choose, welcome, unauthorized, prompt, login, change language, documentation
+AUTH_COPY = {
+"ru":("🇷🇺 Выберите язык 🇷🇺","👋 Добро пожаловать!","❌ Вы не авторизованы.","Введите логин и пароль для входа:","Вход","Сменить язык","Документация"),
+"en":("🇺🇸 Choose your language 🇺🇸","👋 Welcome!","❌ You are not authorized.","Enter your login and password to sign in:","Login","Change language","Documentation"),
+"uk":("🇺🇦 Виберіть мову 🇺🇦","👋 Ласкаво просимо!","❌ Ви не авторизовані.","Введіть логін і пароль для входу:","Увійти","Змінити мову","Документація"),
+"kk":("🇰🇿 Тілді таңдаңыз 🇰🇿","👋 Қош келдіңіз!","❌ Сіз авторизацияланбағансыз.","Кіру үшін логин мен парольді енгізіңіз:","Кіру","Тілді өзгерту","Құжаттама"),
+"pl":("🇵🇱 Wybierz język 🇵🇱","👋 Witamy!","❌ Nie jesteś zalogowany.","Wpisz login i hasło, aby się zalogować:","Zaloguj się","Zmień język","Dokumentacja"),
+"ro":("🇷🇴 Selectați limba 🇷🇴","👋 Bine ați venit!","❌ Nu sunteți autentificat.","Introduceți loginul și parola:","Autentificare","Schimbați limba","Documentație"),
+"tr":("🇹🇷 Dil seçin 🇹🇷","👋 Hoş geldiniz!","❌ Yetkilendirilmediniz.","Giriş için kullanıcı adınızı ve parolanızı girin:","Giriş yap","Dili değiştir","Belgeler"),
+"es":("🇪🇸 Elige tu idioma 🇪🇸","👋 ¡Bienvenido!","❌ No tienes autorización.","Introduce tu usuario y contraseña:","Iniciar sesión","Cambiar idioma","Documentación"),
+"de":("🇩🇪 Wählen Sie Ihre Sprache 🇩🇪","👋 Willkommen!","❌ Sie sind nicht angemeldet.","Geben Sie Login und Passwort ein:","Anmelden","Sprache ändern","Dokumentation"),
+"ky":("🇰🇬 Тилди тандаңыз 🇰🇬","👋 Кош келиңиз!","❌ Сиз авторизациядан өткөн жоксуз.","Кирүү үчүн логин менен сырсөздү киргизиңиз:","Кирүү","Тилди өзгөртүү","Документация"),
+"ka":("🇬🇪 აირჩიეთ ენა 🇬🇪","👋 კეთილი იყოს თქვენი მობრძანება!","❌ ავტორიზებული არ ხართ.","შესასვლელად შეიყვანეთ ლოგინი და პაროლი:","შესვლა","ენის შეცვლა","დოკუმენტაცია"),
+"zh":("🇨🇳 请选择您的语言 🇨🇳","👋 欢迎！","❌ 您尚未获得授权。","请输入登录名和密码：","登录","更改语言","文档"),
+"ko":("🇰🇷 언어를 선택하세요 🇰🇷","👋 환영합니다!","❌ 인증되지 않았습니다.","아이디와 비밀번호를 입력하세요:","로그인","언어 변경","문서"),
+"ar":("🇸🇦 اختر لغتك 🇸🇦","👋 مرحبًا!","❌ لم يتم تفويضك.","أدخل اسم المستخدم وكلمة المرور:","تسجيل الدخول","تغيير اللغة","التوثيق"),
+"ja":("🇯🇵 言語を選択 🇯🇵","👋 ようこそ！","❌ 認証されていません。","ユーザー名とパスワードを入力してください:","ログイン","言語を変更","ドキュメント"),
+"fr":("🇫🇷 Choisissez votre langue 🇫🇷","👋 Bienvenue !","❌ Vous n’êtes pas autorisé.","Saisissez votre identifiant et votre mot de passe :","Se connecter","Changer de langue","Documentation"),
+"pt":("🇵🇹 Escolha seu idioma 🇵🇹","👋 Bem-vindo!","❌ Você não está autorizado.","Digite seu login e senha:","Entrar","Mudar idioma","Documentação"),
+"nl":("🇳🇱 Kies uw taal 🇳🇱","👋 Welkom!","❌ U bent niet geautoriseerd.","Voer uw login en wachtwoord in:","Inloggen","Taal wijzigen","Documentatie"),
+"hi":("🇮🇳 अपनी भाषा चुनें 🇮🇳","👋 स्वागत है!","❌ आप अधिकृत नहीं हैं।","लॉगिन के लिए यूज़रनेम और पासवर्ड दर्ज करें:","लॉगिन","भाषा बदलें","दस्तावेज़"),
+"sk":("🇸🇰 Vyberte jazyk 🇸🇰","👋 Vitajte!","❌ Nie ste autorizovaný.","Zadajte prihlasovacie meno a heslo:","Prihlásiť sa","Zmeniť jazyk","Dokumentácia"),
+}
+AUTH_KEYS = ("choose","welcome","unauth","prompt","login","change","docs")
+AUTH_PROMPTS = {
+"ru":{"login":"Введите ваш логин:","password":"Введите пароль. Сообщение с паролем будет удалено после проверки.","failed":"Неверный логин или пароль. Попробуйте ещё раз.","success":"✅ Вход выполнен.","docs":"Доступ выдаёт администратор. Не пересылайте пароль. Сообщение с паролем удаляется после проверки."},
+"kk":{"login":"Логиніңізді енгізіңіз:","password":"Парольді енгізіңіз. Тексеруден кейін хабарлама жойылады.","failed":"Логин немесе пароль қате. Қайталап көріңіз.","success":"✅ Сіз жүйеге кірдіңіз.","docs":"Қол жеткізу деректерін әкімші береді. Парольді басқа адамдарға жібермеңіз."},
+"en":{"login":"Enter your login:","password":"Enter your password. This message will be deleted after verification.","failed":"Incorrect login or password. Please try again.","success":"✅ You are signed in.","docs":"Access credentials are issued by an administrator. Do not share your password. The password message is deleted after verification."},
+}
+def ui(code,key):
+    values=AUTH_COPY.get(code,AUTH_COPY["ru"])
+    return values[AUTH_KEYS.index(key)]
+def auth_prompt(code,key):
+    return AUTH_PROMPTS.get(code,AUTH_PROMPTS["en"])[key]
+def language_picker_kb():
+    b=InlineKeyboardBuilder()
+    for code,label in LANGUAGE_OPTIONS: b.button(text=label,callback_data=f"lang:{code}")
+    b.adjust(2)
+    return b.as_markup()
+def auth_kb(code="ru"):
+    b=InlineKeyboardBuilder()
+    b.button(text=f"🔐 {ui(code,'login')}",callback_data="auth:login")
+    b.button(text=f"🌐 {ui(code,'change')}",callback_data="auth:language")
+    b.button(text=f"📄 {ui(code,'docs')}",callback_data="auth:docs")
+    b.adjust(1)
+    return b.as_markup()
+def auth_screen(code="ru"):
+    return f"{ui(code,'welcome')}\n{ui(code,'unauth')}\n\n{ui(code,'prompt')}"
+def docs_screen(code="ru"):
+    return f"📄 <b>{ui(code,'docs')}</b>\n\n{auth_prompt(code,'docs')}"
+def ensure_identity(tg):
+    row=get_user(tg.id)
+    if row:return row
+    data={"telegram_id":tg.id,"username":tg.username,"first_name":tg.first_name,"last_name":tg.last_name,"language":"ru","language_selected":False}
+    try: db.table("bot_users").insert(data).execute()
+    except Exception: logging.exception("create identity row failed telegram_id=%s",tg.id)
+    return get_user(tg.id)
+def password_hash(password,salt):
+    return hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,600_000,dklen=32).hex()
+
+
 def register_kb():
-    b = InlineKeyboardBuilder(); b.button(text="📝 Регистрация", callback_data="register"); return b.as_markup()
+    return auth_kb("ru")
 
 def home_kb():
     b = InlineKeyboardBuilder()
@@ -56,7 +133,8 @@ def home_kb():
     b.button(text="📤 Вывести средства", callback_data="menu:withdraw")
     b.button(text="📜 История", callback_data="menu:history")
     b.button(text="ℹ️ Помощь", callback_data="menu:help")
-    b.adjust(1,2,2,1); return b.as_markup()
+    b.button(text="🌐 Язык", callback_data="menu:language")
+    b.adjust(1,2,2,1,1); return b.as_markup()
 
 def back_kb():
     b=InlineKeyboardBuilder(); b.button(text="⬅️ Главное меню",callback_data="menu:home"); return b.as_markup()
@@ -152,15 +230,19 @@ def home_text(u):
     )
 
 async def show_home(target,tg):
-    u=ensure_user(tg)
-    if not u:
-        text="👋 <b>Добро пожаловать!</b>\n\nДля начала работы зарегистрируйтесь."
-        if isinstance(target,CallbackQuery): await target.message.edit_text(text,reply_markup=register_kb()); await target.answer()
-        else: await target.answer(text,reply_markup=register_kb())
-        return
-    text=home_text(u) if not u["is_blocked"] else "⛔ <b>Доступ ограничен.</b>"
-    if isinstance(target,CallbackQuery): await target.message.edit_text(text,reply_markup=home_kb()); await target.answer()
-    else: await target.answer(text,reply_markup=home_kb())
+    row=ensure_identity(tg)
+    code=(row or {}).get("language") or "ru"
+    if not (row or {}).get("language_selected"):
+        text=ui(code,"choose"); markup=language_picker_kb()
+    else:
+        u=ensure_user(tg)
+        if not u: text=auth_screen(code); markup=auth_kb(code)
+        elif u.get("is_blocked"): text="⛔ Доступ ограничен."; markup=None
+        else: text=home_text(u); markup=home_kb()
+    if isinstance(target,CallbackQuery):
+        await target.message.edit_text(text,reply_markup=markup); await target.answer()
+    else:
+        await target.answer(text,reply_markup=markup)
 
 async def start_deposit_flow(message,state,tg):
     u=ensure_user(tg)
@@ -232,13 +314,11 @@ async def menu_wallets(call: CallbackQuery):
     await call.message.edit_text(text, reply_markup=back_kb())
     await call.answer()
 
-@dp.callback_query(F.data == "menu:language")
+@dp.callback_query(F.data.in_({"menu:language", "auth:language"}))
 async def menu_language(call: CallbackQuery):
-    await call.message.edit_text(
-        "🌐 <b>Язык</b>\n\nСейчас доступен русский язык.",
-        reply_markup=back_kb(),
-    )
     await call.answer()
+    code=locale_for(call.from_user.id)
+    await call.message.edit_text(ui(code,"choose"),reply_markup=language_picker_kb())
 
 @dp.callback_query(F.data == "menu:deposit")
 async def menu_deposit(call: CallbackQuery, state: FSMContext):
@@ -246,33 +326,18 @@ async def menu_deposit(call: CallbackQuery, state: FSMContext):
     await start_deposit_flow(call.message, state, call.from_user)
 
 @dp.message(Command("start"))
-async def start(message: Message, state: FSMContext):
-    await state.clear(); u=ensure_user(message.from_user)
-    if not u: await message.answer("👋 <b>Добро пожаловать!</b>\n\nДля начала работы зарегистрируйтесь.",reply_markup=register_kb()); return
-    if u["is_blocked"]: await message.answer("⛔ <b>Доступ ограничен.</b>"); return
-    await message.answer(home_text(u),reply_markup=home_kb())
-
-@dp.callback_query(F.data == "register")
-async def register_cb(call: CallbackQuery):
-    # Acknowledge immediately so Telegram stops showing the callback spinner.
-    await call.answer()
-    try:
-        u = register_user(call.from_user)
-        if not u:
-            raise RuntimeError("Registration did not return a user row")
-        if u.get("is_blocked"):
-            await call.message.edit_text("⛔ <b>Доступ ограничен.</b>")
-            return
-        await call.message.edit_text(
-            "✅ <b>Регистрация завершена.</b>\\n\\n" + home_text(u),
-            reply_markup=home_kb(),
-        )
-    except Exception:
-        logging.exception("registration failed for telegram_id=%s", call.from_user.id)
-        await call.message.edit_text(
-            "❌ Не удалось завершить регистрацию. Попробуйте ещё раз позже.",
-            reply_markup=register_kb(),
-        )
+async def start(message: Message,state:FSMContext):
+    await state.clear()
+    row=ensure_identity(message.from_user)
+    code=(row or {}).get("language") or "ru"
+    if not (row or {}).get("language_selected"):
+        await message.answer(ui(code,"choose"),reply_markup=language_picker_kb()); return
+    user=ensure_user(message.from_user)
+    if not user:
+        await message.answer(auth_screen(code),reply_markup=auth_kb(code)); return
+    if user.get("is_blocked"):
+        await message.answer("⛔ Доступ ограничен."); return
+    await message.answer(home_text(user),reply_markup=home_kb())
 
 @dp.message(F.text == "💰 Мой баланс")
 async def balance(message: Message):
@@ -605,6 +670,112 @@ async def notify_admins(order_id, receipt=None):
             logging.exception("deposit notification failed for admin_id=%s order_id=%s", aid, order_id)
     return delivered == len(admins)
 
+
+
+
+
+@dp.callback_query(F.data.startswith("lang:"))
+async def choose_language(call:CallbackQuery,state:FSMContext):
+    code=call.data.split(":",1)[1]
+    if code not in AUTH_COPY:
+        await call.answer("Unknown language",show_alert=True); return
+    ensure_identity(call.from_user)
+    db.table("bot_users").update({"language":code,"language_selected":True,"updated_at":now()}).eq("telegram_id",call.from_user.id).execute()
+    await state.clear(); await call.answer()
+    user=ensure_user(call.from_user)
+    if user and user.get("is_blocked"): await call.message.edit_text("⛔ Доступ ограничен.")
+    elif user: await call.message.edit_text(home_text(user),reply_markup=home_kb())
+    else: await call.message.edit_text(auth_screen(code),reply_markup=auth_kb(code))
+
+
+@dp.callback_query(F.data == "auth:docs")
+async def auth_documentation(call:CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(docs_screen(locale_for(call.from_user.id)),reply_markup=back_kb())
+
+
+@dp.callback_query(F.data == "auth:login")
+async def auth_login(call:CallbackQuery,state:FSMContext):
+    await call.answer()
+    user=ensure_user(call.from_user)
+    if user:
+        await call.message.edit_text(home_text(user),reply_markup=home_kb()); return
+    code=locale_for(call.from_user.id)
+    await state.clear(); await state.set_state(Auth.login)
+    await call.message.answer(auth_prompt(code,"login"))
+
+
+@dp.message(Auth.login)
+async def auth_login_name(message:Message,state:FSMContext):
+    login=(message.text or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_.-]{3,32}",login):
+        await message.answer(auth_prompt(locale_for(message.from_user.id),"login")); return
+    await state.update_data(auth_login=login); await state.set_state(Auth.password)
+    await message.answer(auth_prompt(locale_for(message.from_user.id),"password"))
+
+
+@dp.message(Auth.password)
+async def auth_password(message:Message,state:FSMContext):
+    code=locale_for(message.from_user.id)
+    password=message.text or ""
+    try: await message.delete()
+    except Exception: pass
+    login=(await state.get_data()).get("auth_login","")
+    rows=db.table("bot_credentials").select("*").eq("login",login).limit(1).execute().data or []
+    credential=rows[0] if rows else None
+    valid=False
+    if credential:
+        locked=credential.get("locked_until")
+        if locked:
+            try:
+                if datetime.fromisoformat(locked.replace("Z","+00:00"))>datetime.now(timezone.utc):
+                    await state.clear(); await message.answer(auth_prompt(code,"failed"),reply_markup=auth_kb(code)); return
+            except ValueError: pass
+        try:
+            salt=bytes.fromhex(credential["password_salt"])
+            calculated=await asyncio.to_thread(password_hash,password,salt)
+            valid=(credential.get("is_active") is True and int(credential["telegram_id"])==message.from_user.id and hmac.compare_digest(calculated,credential["password_hash"]))
+        except Exception: logging.exception("credential verification failed telegram_id=%s",message.from_user.id)
+    if valid:
+        db.table("bot_credentials").update({"failed_attempts":0,"locked_until":None,"updated_at":now()}).eq("telegram_id",message.from_user.id).execute()
+        user=register_user(message.from_user)
+        await state.clear()
+        if user.get("is_blocked"): await message.answer("⛔ Доступ ограничен."); return
+        await message.answer(f"{auth_prompt(code,'success')}\n\n{home_text(user)}",reply_markup=home_kb()); return
+    if credential:
+        failures=int(credential.get("failed_attempts") or 0)+1
+        update={"failed_attempts":failures,"updated_at":now()}
+        if failures>=5: update.update({"failed_attempts":0,"locked_until":(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat()})
+        db.table("bot_credentials").update(update).eq("telegram_id",credential["telegram_id"]).execute()
+    await state.clear()
+    await message.answer(auth_prompt(code,"failed"),reply_markup=auth_kb(code))
+
+
+@dp.message(Command("issue_login"))
+async def issue_login(message:Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Нет доступа."); return
+    parts=(message.text or "").split()
+    if len(parts)!=3 or not parts[1].isdigit():
+        await message.answer("Использование: /issue_login <telegram_id> <login>"); return
+    target_id=int(parts[1]); login=parts[2].lower()
+    if not re.fullmatch(r"[a-z0-9_.-]{3,32}",login):
+        await message.answer("Логин: 3–32 символа, латиница, цифры, точка, дефис или _."); return
+    if not get_user(target_id):
+        await message.answer("Пользователь должен сначала открыть бота и нажать /start."); return
+    password=secrets.token_urlsafe(16); salt=secrets.token_bytes(16)
+    hashed=await asyncio.to_thread(password_hash,password,salt)
+    payload={"telegram_id":target_id,"login":login,"password_salt":salt.hex(),"password_hash":hashed,"is_active":True,"failed_attempts":0,"locked_until":None,"updated_at":now()}
+    try: db.table("bot_credentials").upsert(payload,on_conflict="telegram_id").execute()
+    except Exception:
+        logging.exception("credential issue failed target_id=%s",target_id)
+        await message.answer("Не удалось выдать логин. Возможно, этот логин уже занят."); return
+    try:
+        await bot.send_message(target_id,f"🔐 <b>Данные для входа</b>\nЛогин: <code>{login}</code>\nПароль: <code>{password}</code>\n\nНе пересылайте это сообщение. После входа удалите его из чата.")
+    except Exception:
+        await message.answer("Учётная запись создана, но Telegram не доставил сообщение. Пользователь должен открыть бота; затем повторите /issue_login.")
+        return
+    await message.answer(f"✅ Логин выдан пользователю <code>{target_id}</code>. Пароль отправлен в личный чат.")
 
 
 
