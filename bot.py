@@ -328,15 +328,54 @@ async def deposit_amount(message:Message,state:FSMContext):
     await message.answer(f"🧾 <b>Заявка #{o['order_number']}</b>\n\nСумма: <b>{money(amount)} USDT</b>\nСеть: <b>TRC20</b>\n\nАдрес для оплаты:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\nПосле перевода отправьте <b>TXID</b>.",reply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS))
 
 @dp.message(Deposit.txid)
-async def deposit_txid(message:Message,state:FSMContext):
-    oid=(await state.get_data()).get("order_id")
-    if not oid: await state.clear(); return
-    rows=db.table("orders").select("*").eq("id",oid).limit(1).execute().data
-    if not rows: await state.clear(); await message.answer("Заявка не найдена.",reply_markup=home_kb()); return
-    txid=(message.text or "").strip()
-    if len(txid)<20: await message.answer("❌ Отправьте корректный TXID TRC20."); return
-    db.table("orders").update({"deposit_tx_hash":txid,"status":"under_review","updated_at":now()}).eq("id",oid).execute()
-    await state.clear(); await message.answer("✅ <b>TXID получен.</b>\n\nЗаявка передана администратору на проверку.",reply_markup=home_kb()); await notify_admins(oid)
+async def deposit_txid(message: Message, state: FSMContext):
+    order_id = (await state.get_data()).get("order_id")
+    if not order_id:
+        await state.clear()
+        await message.answer("Заявка не найдена. Начните пополнение заново.", reply_markup=home_kb())
+        return
+
+    rows = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
+    if not rows:
+        await state.clear()
+        await message.answer("Заявка не найдена.", reply_markup=home_kb())
+        return
+
+    receipt = None
+    update = {"status": "under_review", "updated_at": now()}
+    if message.text:
+        txid = message.text.strip()
+        if len(txid) < 20:
+            await message.answer("❌ Отправьте корректный TXID TRC20 или приложите фото/файл чека.")
+            return
+        update["deposit_tx_hash"] = txid
+    elif message.photo:
+        receipt = ("photo", message.photo[-1].file_id)
+    elif message.document:
+        receipt = ("document", message.document.file_id)
+    else:
+        await message.answer("Отправьте TXID TRC20 текстом или приложите фото/файл чека.")
+        return
+
+    try:
+        db.table("orders").update(update).eq("id", order_id).execute()
+        delivered = await notify_admins(order_id, receipt=receipt)
+    except Exception:
+        logging.exception("deposit submission failed for order_id=%s", order_id)
+        delivered = False
+
+    if not delivered:
+        await message.answer(
+            "Заявка сохранена, но уведомление администратору не доставлено. "
+            "Попробуйте отправить TXID или чек ещё раз — заявка останется той же."
+        )
+        return
+
+    await state.clear()
+    await message.answer(
+        "✅ <b>Заявка передана администратору на проверку.</b>",
+        reply_markup=home_kb(),
+    )
 
 @dp.callback_query(F.data.startswith("confirm:"))
 async def confirm_first(call: CallbackQuery):
@@ -523,29 +562,50 @@ async def main():
     asyncio.create_task(expiry_loop())
     await dp.start_polling(bot)
 
+
 if __name__ == "__main__":
     asyncio.run(main())
 
-async def notify_admins(order_id):
+async def notify_admins(order_id, receipt=None):
     rows = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
     if not rows:
-        return
+        logging.error("order %s was not found while notifying admins", order_id)
+        return False
     o = rows[0]
     urows = db.table("bot_users").select("*").eq("id", o["user_id"]).limit(1).execute().data
     u = urows[0] if urows else {}
+    admins = admin_ids()
+    if not admins:
+        logging.error("no active admins configured for deposit order %s", order_id)
+        return False
     b = InlineKeyboardBuilder()
     b.button(text="✅ Подтвердить", callback_data=f"confirm:{order_id}")
     b.button(text="❌ Отклонить", callback_data=f"reject:{order_id}")
     b.adjust(2)
     text_msg = (
-        f"🔔 <b>Депозит #{o['order_number']}</b>\n\n"
-        f"Клиент: @{u.get('username') or 'без_username'}\n"
-        f"Сумма: <b>{money(o['amount'])} USDT</b>\n"
-        f"Сеть: <b>TRC20</b>\n"
+        f"🔔 <b>Депозит #{o['order_number']}</b>\\n\\n"
+        f"Клиент: @{u.get('username') or 'без_username'}\\n"
+        f"Сумма: <b>{money(o['amount'])} USDT</b>\\n"
+        f"Сеть: <b>TRC20</b>\\n"
         f"TXID: <code>{o.get('deposit_tx_hash') or '—'}</code>"
     )
-    for aid in admin_ids():
-        await bot.send_message(aid, text_msg, reply_markup=b.as_markup())
+    if receipt:
+        text_msg += "\\n\\n📎 Пользователь приложил чек."
+    delivered = 0
+    for aid in admins:
+        try:
+            await bot.send_message(aid, text_msg, reply_markup=b.as_markup())
+            if receipt:
+                kind, file_id = receipt
+                if kind == "photo":
+                    await bot.send_photo(aid, file_id, caption=f"🧾 Чек к депозиту #{o['order_number']}")
+                else:
+                    await bot.send_document(aid, file_id, caption=f"🧾 Чек к депозиту #{o['order_number']}")
+            delivered += 1
+        except Exception:
+            logging.exception("deposit notification failed for admin_id=%s order_id=%s", aid, order_id)
+    return delivered == len(admins)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
