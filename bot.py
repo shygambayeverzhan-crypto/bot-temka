@@ -324,8 +324,8 @@ async def deposit_amount(message:Message,state:FSMContext):
     try:
         o=db.table("orders").insert({"user_id":u["id"],"wallet_id":None,"wallet_snapshot":{"network":"TRC20","asset":"USDT","address":ADMIN_TRC20_ADDRESS},"amount":float(amount),"currency":"USDT","network":"TRC20","status":"pending","expires_at":(datetime.now(timezone.utc)+timedelta(minutes=20)).isoformat()}).execute().data[0]
     except Exception: logging.exception("deposit create failed"); await message.answer("❌ Не удалось создать заявку."); return
-    awreply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS))osit.txid); await state.update_data(order_id=o["id"])
-    await message.answer(f"🧾 <b>Заявка #{o['order_number']}</b>\n\nСумма: <b>{money(amount)} USDT</b>\nСеть: <b>TRC20</b>\n\nАдрес для оплаты:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\nПосле перевода отправьте <b>TXID</b>.",reply_markup=back_kb())
+    await state.set_state(Deposit.txid); await state.update_data(order_id=o["id"])
+    await message.answer(f"🧾 <b>Заявка #{o['order_number']}</b>\n\nСумма: <b>{money(amount)} USDT</b>\nСеть: <b>TRC20</b>\n\nАдрес для оплаты:\n<code>{ADMIN_TRC20_ADDRESS}</code>\n\nПосле перевода отправьте <b>TXID</b>.",reply_markup=address_copy_kb(ADMIN_TRC20_ADDRESS))
 
 @dp.message(Deposit.txid)
 async def deposit_txid(message:Message,state:FSMContext):
