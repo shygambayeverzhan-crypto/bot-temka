@@ -64,36 +64,6 @@ def back_kb():
 def balance_kb():
     b=InlineKeyboardBuilder(); b.button(text="💰 Внести депозит",callback_data="menu:deposit"); b.button(text="📤 Вывести средства",callback_data="menu:withdraw"); b.button(text="⬅️ Главное меню",callback_data="menu:home"); b.adjust(1,2); return b.as_markup()
 
-def now(): return datetime.now(timezone.utc).isoformat()
-def money(v): return f"{Decimal(str(v)):,.2f}".replace(",", " ").replace(".00", "")
-def get_user(tg_id):
-    r=db.table("bot_users").select("*").eq("telegram_id",tg_id).limit(1).execute(); return r.data[0] if r.data else None
-def ensure_user(tg):
-    row=get_user(tg.id)
-    if not row: return None
-    data={"telegram_id":tg.id,"username":tg.username,"first_name":tg.first_name,"last_name":tg.last_name,"updated_at":now()}
-    db.table("bot_users").update(data).eq("telegram_id",tg.id).execute(); row.update(data); return row
-def register_user(tg):
-    row=get_user(tg.id)
-    if row: return ensure_user(tg)
-    return db.table("bot_users").insert({"telegram_id":tg.id,"username":tg.username,"first_name":tg.first_name,"last_name":tg.last_name,"language":"ru","balance":0,"is_blocked":False,"updated_at":now()}).execute().data[0]
-def admin_ids():
-    ids={ADMIN_TELEGRAM_ID} if ADMIN_TELEGRAM_ID else set(); r=db.table("bot_admins").select("telegram_id").eq("is_active",True).execute(); ids|={int(x["telegram_id"]) for x in (r.data or [])}; return ids
-def is_admin(tg_id): return tg_id in admin_ids()
-def open_order(uid):
-    r=db.table("orders").select("*").eq("user_id",uid).in_("status",["pending","waiting_receipt","under_review"]).order("created_at",desc=True).limit(1).execute(); return r.data[0] if r.data else None
-def open_withdrawal(uid):
-    r=db.table("withdrawals").select("*").eq("user_id",uid).in_("status",["pending","processing"]).order("created_at",desc=True).limit(1).execute(); return r.data[0] if r.data else None
-async def notify_user(tg_id,text):
-    try: await bot.send_message(tg_id,text)
-    except Exception: logging.exception("notify_user failed")
-def home_text(u):
-    bal=Decimal(str(u["balance"])); lock=""
-    if bal>=THRESHOLD: lock="\n\n⚠️ <b>Достигнут баланс 500 USDT.</b>\nНеобходимо вывести всю сумму.\nКомиссия: <b>20 USDT</b>\nК получению: <b>480 USDT</b>."
-    return f"👋 <b>4% TRADER</b>\n\nПривет, <b>{u.get('first_name') or 'друг'}</b>!\n\n💰 Баланс: <b>{money(bal)} USDT</b>\n🌐 Сеть: <b>TRC20</b>{lock}\n\nВыберите действие:"
-
-MAIN_KB = home_kb()
-
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -106,13 +76,12 @@ def get_user(tg_id):
 
 def ensure_user(tg):
     row = get_user(tg.id)
+    if not row or not row.get("registered_at"):
+        return None
     data = {"telegram_id": tg.id, "username": tg.username, "first_name": tg.first_name, "last_name": tg.last_name, "updated_at": now()}
-    if row:
-        db.table("bot_users").update(data).eq("telegram_id", tg.id).execute()
-        row.update(data)
-        return row
-    data.update({"language": "ru", "balance": 0, "is_blocked": False})
-    return db.table("bot_users").insert(data).execute().data[0]
+    db.table("bot_users").update(data).eq("telegram_id", tg.id).execute()
+    row.update(data)
+    return row
 
 def admin_ids():
     ids = {ADMIN_TELEGRAM_ID} if ADMIN_TELEGRAM_ID else set()
@@ -183,7 +152,6 @@ async def menu_balance(call: CallbackQuery):
     if not u: await call.answer("Сначала зарегистрируйтесь.",show_alert=True); return
     await call.message.edit_text(f"💳 <b>Ваш баланс</b>\n\n<b>{money(u['balance'])} USDT</b>\nСеть: <b>TRC20</b>",reply_markup=balance_kb()); await call.answer()
 
-@dp.callback_query(F.data == "menu:history")
 @dp.callback_query(F.data == "menu:withdraw")
 async def menu_withdraw(call: CallbackQuery,state:FSMContext):
     u=ensure_user(call.from_user)
@@ -199,6 +167,7 @@ async def menu_withdraw(call: CallbackQuery,state:FSMContext):
 async def menu_help(call: CallbackQuery):
     await call.message.edit_text("ℹ️ <b>Правила</b>\n\n• Регистрация обязательна.\n• Минимальный депозит — <b>250 USDT</b>.\n• Сеть — <b>TRC20</b>.\n• Депозит подтверждает администратор.\n• При достижении 500 USDT требуется полный вывод.\n• Комиссия вывода — 4%.\n\nПример: <b>500 → 20 комиссии → 480 USDT пользователю.</b>",reply_markup=back_kb()); await call.answer()
 
+@dp.callback_query(F.data == "menu:history")
 async def menu_history(call: CallbackQuery):
     u = ensure_user(call.from_user)
     rows = db.table("balance_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(8).execute().data or []
@@ -509,181 +478,26 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-# UI: manual USDT TRC20 flow.async def notify_admins(order_id):
-    rows=db.table("orders").select("*").eq("id",order_id).limit(1).execute().data
-    if not rows:return
-    o=rows[0]; urows=db.table("bot_users").select("*").eq("id",o["user_id"]).limit(1).execute().data; u=urows[0] if urows else {}
-    b=InlineKeyboardBuilder(); b.button(text="✅ Подтвердить",callback_data=f"confirm:{order_id}"); b.button(text="❌ Отклонить",callback_data=f"reject:{order_id}"); b.adjust(2)
-    text=f"🔔 <b>Депозит #{o['order_number']}</b>\n\nКлиент: @{u.get('username') or 'без_username'}\nСумма: <b>{money(o['amount'])} USDT</b>\nСеть: <b>TRC20</b>\nTXID: <code>{o.get('deposit_tx_hash') or '—'}</code>"
-    for aid in admin_ids():
-        await notify_user(aid,text)
-        await bot.send_message(aid,"Выберите действие:",reply_markup=b.as_markup())
-
-@dp.callback_query(F.data.startswith("confirm:"))
-async def confirm_first(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        await call.answer("Нет доступа", show_alert=True)
-        return
-    order_id = call.data.split(":", 1)[1]
-    b = InlineKeyboardBuilder()
-    b.button(text="✅ Да, подтвердить", callback_data=f"confirm2:{order_id}")
-    b.button(text="↩️ Назад", callback_data=f"noop:{order_id}")
-    await call.message.edit_reply_markup(reply_markup=b.as_markup())
-    await call.answer("Подтвердите начисление вторым нажатием.")
-
-@dp.callback_query(F.data.startswith("noop:"))
-async def noop(call: CallbackQuery):
-    await call.answer("Отменено.")
-
-@dp.callback_query(F.data.startswith("confirm2:"))
-async def confirm_second(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        await call.answer("Нет доступа", show_alert=True)
-        return
-    order_id = call.data.split(":", 1)[1]
-    try:
-        result = db.rpc("confirm_order", {"p_order_id": order_id, "p_admin_telegram_id": call.from_user.id}).execute().data or {}
-    except Exception:
-        logging.exception("confirm_order failed")
-        await call.answer("Ошибка подтверждения", show_alert=True)
-        return
-    if result.get("ok") is not True:
-        await call.answer("Заказ не подтверждён", show_alert=True)
-        return
-    if not result.get("already_paid"):
-        await notify_user(int(result["telegram_id"]), f"✅ <b>Оплата подтверждена</b>\n\nЗачислено: <b>{money(result['amount'])} ₸</b>\nБаланс: <b>{money(result['balance'])} ₸</b>")
-        o = db.table("orders").select("user_id").eq("id", order_id).limit(1).execute().data
-        db.table("audit_logs").insert({"actor_telegram_id": call.from_user.id, "action": "confirm_order", "order_id": order_id, "target_user_id": o[0]["user_id"] if o else None, "payload": {"amount": result["amount"]}}).execute()
-    await call.message.edit_text("✅ <b>Заявка подтверждена. Баланс зачислен.</b>")
-    await call.answer("Готово.")
-
-@dp.callback_query(F.data.startswith("reject:"))
-async def reject(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        await call.answer("Нет доступа", show_alert=True)
-        return
-    order_id = call.data.split(":", 1)[1]
-    olist = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
-    if not olist:
-        await call.answer("Заявка не найдена", show_alert=True)
-        return
-    o = olist[0]
-    if o["status"] == "paid":
-        await call.answer("Уже оплачена", show_alert=True)
-        return
-    db.table("orders").update({"status": "cancelled", "cancelled_at": now(), "cancelled_reason": "Rejected by admin", "updated_at": now()}).eq("id", order_id).execute()
-    u = db.table("bot_users").select("telegram_id").eq("id", o["user_id"]).limit(1).execute().data
-    if u:
-        await notify_user(int(u[0]["telegram_id"]), f"❌ Заявка #{o['order_number']} отклонена администратором.")
-    db.table("audit_logs").insert({"actor_telegram_id": call.from_user.id, "action": "reject_order", "order_id": order_id, "target_user_id": o["user_id"]}).execute()
-    await call.message.edit_text(f"❌ <b>Заявка #{o['order_number']} отклонена.</b>")
-    await call.answer()
-
-@dp.callback_query(F.data.startswith("cancel:"))
-async def cancel_order(call: CallbackQuery):
-    order_id = call.data.split(":", 1)[1]
-    olist = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
-    u = get_user(call.from_user.id)
-    if not olist or not u or olist[0]["user_id"] != u["id"]:
-        await call.answer("Нет доступа", show_alert=True)
-        return
-    o = olist[0]
-    if o["status"] in {"paid", "cancelled", "expired"}:
-        await call.answer("Уже закрыта", show_alert=True)
-        return
-    db.table("orders").update({"status": "cancelled", "cancelled_at": now(), "cancelled_reason": "Cancelled by user", "updated_at": now()}).eq("id", order_id).execute()
-    await call.message.edit_text(f"❌ Заявка #{o['order_number']} отменена.")
-    await call.answer()
-
-@dp.message(Command("cancel"))
-async def cancel_cmd(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("↩️ <b>Операция отменена.</b>", reply_markup=home_kb())
-
-@dp.message(Command("claim_admin"))
-async def claim_admin(message: Message):
-    if not ADMIN_SETUP_CODE:
-        await message.answer("Админ-активация отключена.")
-        return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) != 2 or parts[1] != ADMIN_SETUP_CODE:
-        await message.answer("❌ Неверный код.")
-        return
-    db.table("bot_admins").upsert({"telegram_id": message.from_user.id, "role": "superadmin", "is_active": True}, on_conflict="telegram_id").execute()
-    await message.answer("✅ Вы назначены администратором.")
-
-@dp.message(Command("admin"))
-async def admin(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Нет доступа.")
-        return
-    pending = db.table("orders").select("id", count="exact").eq("status", "under_review").execute()
-    total = db.table("bot_users").select("id", count="exact").execute()
-    await message.answer(f"👨‍💻 <b>Админ-панель</b>\n\n📥 На проверке: <b>{pending.count or 0}</b>\n👥 Пользователей: <b>{total.count or 0}</b>\n\n/orders — заявки\n/wallet_add Название|Банк|Реквизиты|Получатель\n/wallet_off UUID")
-
-@dp.message(Command("orders"))
-async def orders(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Нет доступа.")
-        return
-    rows = db.table("orders").select("*").eq("status", "under_review").order("created_at").limit(20).execute().data or []
+async def notify_admins(order_id):
+    rows = db.table("orders").select("*").eq("id", order_id).limit(1).execute().data
     if not rows:
-        await message.answer("📭 Заявок на проверке нет.")
         return
-    for o in rows:
-        b = InlineKeyboardBuilder()
-        b.button(text="✅ Подтвердить", callback_data=f"confirm:{o['id']}")
-        b.button(text="❌ Отклонить", callback_data=f"reject:{o['id']}")
-        b.adjust(2)
-        await message.answer(f"#{o['order_number']} — <b>{money(o['amount'])} ₸</b>", reply_markup=b.as_markup())
-
-@dp.message(Command("wallet_add"))
-async def wallet_add(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Нет доступа.")
-        return
-    p = (message.text or "").split(maxsplit=1)
-    if len(p) != 2 or len(p[1].split("|")) != 4:
-        await message.answer("Формат: /wallet_add Название|Банк|Реквизиты|Получатель")
-        return
-    title, bank, req, holder = [x.strip() for x in p[1].split("|")]
-    db.table("wallets").insert({"title": title, "bank_name": bank, "requisites": req, "holder_name": holder, "currency": "USDT", "is_active": True}).execute()
-    await message.answer("✅ Реквизит добавлен.")
-
-@dp.message(Command("wallet_off"))
-async def wallet_off(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Нет доступа.")
-        return
-    p = (message.text or "").split(maxsplit=1)
-    if len(p) != 2:
-        await message.answer("Формат: /wallet_off UUID")
-        return
-    db.table("wallets").update({"is_active": False, "updated_at": now()}).eq("id", p[1].strip()).execute()
-    await message.answer("✅ Реквизит отключён.")
-
-async def expiry_loop():
-    while True:
-        try:
-            current = now()
-            rows = db.table("orders").select("id,order_number,user_id").in_("status", ["pending","waiting_receipt"]).lt("expires_at", current).limit(100).execute().data or []
-            for o in rows:
-                db.table("orders").update({"status":"expired","updated_at":current}).eq("id",o["id"]).execute()
-                u = db.table("bot_users").select("telegram_id").eq("id",o["user_id"]).limit(1).execute().data
-                if u:
-                    await notify_user(int(u[0]["telegram_id"]), f"⌛ Заявка #{o['order_number']} истекла.")
-        except Exception:
-            logging.exception("expiry loop")
-        await asyncio.sleep(30)
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    asyncio.create_task(expiry_loop())
-    await dp.start_polling(bot)
+    o = rows[0]
+    urows = db.table("bot_users").select("*").eq("id", o["user_id"]).limit(1).execute().data
+    u = urows[0] if urows else {}
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ Подтвердить", callback_data=f"confirm:{order_id}")
+    b.button(text="❌ Отклонить", callback_data=f"reject:{order_id}")
+    b.adjust(2)
+    text_msg = (
+        f"🔔 <b>Депозит #{o['order_number']}</b>\n\n"
+        f"Клиент: @{u.get('username') or 'без_username'}\n"
+        f"Сумма: <b>{money(o['amount'])} USDT</b>\n"
+        f"Сеть: <b>TRC20</b>\n"
+        f"TXID: <code>{o.get('deposit_tx_hash') or '—'}</code>"
+    )
+    for aid in admin_ids():
+        await bot.send_message(aid, text_msg, reply_markup=b.as_markup())
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-# UI v2: polished inline Telegram interface.
-
-# Railway sync: manual USDT TRC20 flow
