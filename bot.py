@@ -162,8 +162,8 @@ FLOW_EXTRA = {
 FLOW_EXTRA_KEYS=("unavailable","open_deposit","amount_label","network_label","address_label","txid_instruction","txid_invalid","receipt_instruction","receipt_pending","delivery_failed","expired","paid","rejected_user","withdraw_created","withdraw_paid","withdraw_rejected")
 def flow_extra(code,key):
     return FLOW_EXTRA.get(code,FLOW_EXTRA["en"])[FLOW_EXTRA_KEYS.index(key)]
-def amount_prompt(code):
-    return f"💰 <b>{flow(code,'deposit')}</b>\n\n{flow(code,'amount_prompt')}\n{flow(code,'minimum')}: <b>{money(MIN_DEPOSIT)} USDT</b>\n{flow_extra(code,'network_label')}: <b>TRC20</b>"
+def amount_prompt(code, minimum):
+    return f"💰 <b>{flow(code,'deposit')}</b>\n\n{flow(code,'amount_prompt')}\n{flow(code,'minimum')}: <b>{money(minimum)} USDT</b>\n{flow_extra(code,'network_label')}: <b>TRC20</b>"
 
 RULES_COPY={
 "ru":"ℹ️ <b>Правила</b>\n\n• Регистрация обязательна.\n• Минимальный депозит — <b>250 USDT</b>.\n• Сеть — <b>TRC20</b>.\n• Депозит подтверждает администратор.\n• При достижении 500 USDT требуется полный вывод.\n• Комиссия вывода — 4%.\n\nПример: <b>500 → 20 комиссии → 480 USDT пользователю.</b>",
@@ -410,8 +410,9 @@ async def start_deposit_flow(message,state,tg):
         await message.answer(f"⚠️ <b>{flow(code,'deposit')}</b>\n{flow_extra(code,'unavailable')}",reply_markup=back_kb(code)); return
     if open_order(u["id"]):
         await message.answer(f"⚠️ {flow_extra(code,'open_deposit')}",reply_markup=back_kb(code)); return
+    minimum=min(MIN_DEPOSIT, THRESHOLD-Decimal(str(u["balance"])))
     await state.set_state(Deposit.amount)
-    await message.answer(amount_prompt(code),reply_markup=back_kb(code))
+    await message.answer(amount_prompt(code,minimum),reply_markup=back_kb(code))
 
 @dp.callback_query(F.data == "menu:home")
 async def menu_home(call: CallbackQuery, state: FSMContext):
@@ -559,13 +560,15 @@ async def deposit_amount(message:Message,state:FSMContext):
     try: amount=Decimal((message.text or "").replace(" ","").replace(",",".")).quantize(Decimal("0.01"))
     except InvalidOperation:
         await message.answer(flow(code,"invalid_amount")); return
-    if amount<MIN_DEPOSIT:
-        await message.answer(f"❌ {flow(code,'minimum')}: <b>{money(MIN_DEPOSIT)} USDT</b>."); return
     u=ensure_user(message.from_user)
     if not u:
         await state.clear(); await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
-    if Decimal(str(u["balance"]))>=THRESHOLD:
+    balance=Decimal(str(u["balance"]))
+    if balance>=THRESHOLD:
         await state.clear(); await message.answer(f"⚠️ {flow_extra(code,'unavailable')}",reply_markup=home_kb(code)); return
+    minimum=min(MIN_DEPOSIT, THRESHOLD-balance)
+    if amount<minimum:
+        await message.answer(f"❌ {flow(code,'minimum')}: <b>{money(minimum)} USDT</b>."); return
     try:
         o=db.table("orders").insert({"user_id":u["id"],"wallet_id":None,"wallet_snapshot":{"network":"TRC20","asset":"USDT","address":ADMIN_TRC20_ADDRESS},"amount":float(amount),"currency":"USDT","network":"TRC20","status":"pending","expires_at":(datetime.now(timezone.utc)+timedelta(minutes=20)).isoformat()}).execute().data[0]
     except Exception:
