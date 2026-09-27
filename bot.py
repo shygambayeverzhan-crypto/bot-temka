@@ -135,7 +135,7 @@ FLOW_KEYS=("unregistered","restricted","deposit","amount_prompt","minimum","bala
 FLOW_EXTRA = {
 # unavailable, open_deposit, amount_label, network_label, address_label, txid_instruction, txid_invalid, receipt_instruction, receipt_pending, delivery_failed, expired, paid, rejected_user, withdraw_created, withdraw_paid, withdraw_rejected
 "ru":("Сначала необходимо вывести весь баланс.","У вас уже есть открытая заявка на депозит.","Сумма","Сеть","Адрес для оплаты","После перевода отправьте TXID или чек.","Отправьте корректный TXID TRC20 или приложите фото/файл чека.","Отправьте TXID TRC20 текстом или приложите фото/файл чека.","✅ Заявка передана администратору на проверку.","Заявка сохранена, но уведомление администратору не доставлено. Попробуйте отправить TXID или чек ещё раз.","⌛ Заявка истекла.","✅ Оплата подтверждена.","❌ Заявка отклонена администратором.","Заявка создана","✅ Вывод подтверждён","❌ Вывод отклонён. Баланс не изменён."),
-"en":("Please withdraw your full balance first.","You already have an open deposit request.","Amount","Network","Payment address","After payment, send the TXID or receipt.","Send a valid TRC20 TXID or attach a receipt image/file.","Send the TRC20 TXID as text or attach a receipt image/file.","✅ Your request has been sent to the administrator for review.","The request was saved, but the administrator was not notified. Please send the TXID or receipt again.","⌛ The request expired.","✅ Payment confirmed.","❌ The request was rejected by the administrator.","Request created","✅ Withdrawal confirmed","❌ Withdrawal rejected. Your balance is unchanged."),
+"en":("Please withdraw your full balance first.","You already have an open deposit request.","Amount","Network","Payment address","After payment, send the TXID or receipt.","Send a valid TRC20 TXID or attach a receipt image/file.","Send the TRC20 TXID as text or attach a receipt image/file.","✅ Your request has been sent to the administrator for review.","The request was saved, but the administrator was not notified. Please send the TXID or receipt again.","⌛ The request expired.","✅ Payment confirmed.","❌ The request was rejected by the administrator.","Request created","✅ Withdrawal confirmed","❌ Вывод отклонён. Баланс не изменён."),
 "uk":("Спочатку виведіть увесь баланс.","У вас уже є відкрита заявка на поповнення.","Сума","Мережа","Адреса для оплати","Після оплати надішліть TXID або чек.","Надішліть коректний TXID TRC20 або додайте фото/файл чека.","Надішліть TXID TRC20 текстом або додайте фото/файл чека.","✅ Заявку передано адміністратору на перевірку.","Заявку збережено, але адміністратора не сповіщено. Надішліть TXID або чек ще раз.","⌛ Термін заявки минув.","✅ Оплату підтверджено.","❌ Заявку відхилено адміністратором.","Заявку створено","✅ Виведення підтверджено","❌ Виведення відхилено. Баланс не змінено."),
 "kk":("Алдымен толық балансты шығарыңыз.","Сізде депозит өтінімі ашық тұр.","Сома","Желі","Төлем мекенжайы","Төлемнен кейін TXID немесе түбіртекті жіберіңіз.","Дұрыс TRC20 TXID жіберіңіз немесе түбіртек суретін/файлын тіркеңіз.","TRC20 TXID мәтінін немесе түбіртек суретін/файлын жіберіңіз.","✅ Өтінім әкімшіге тексеруге жіберілді.","Өтінім сақталды, бірақ әкімшіге хабарланбады. TXID не түбіртекті қайта жіберіңіз.","⌛ Өтінімнің мерзімі аяқталды.","✅ Төлем расталды.","❌ Өтінімді әкімші қабылдамады.","Өтінім жасалды","✅ Шығару расталды","❌ Шығару қабылданбады. Баланс өзгерген жоқ."),
 "pl":("Najpierw wypłać całe saldo.","Masz już otwarty wniosek o wpłatę.","Kwota","Sieć","Adres płatności","Po wpłacie wyślij TXID lub potwierdzenie.","Wyślij prawidłowy TXID TRC20 lub załącz zdjęcie/plik potwierdzenia.","Wyślij TXID TRC20 jako tekst lub załącz zdjęcie/plik potwierdzenia.","✅ Wniosek wysłano administratorowi do sprawdzenia.","Wniosek zapisano, ale administrator nie otrzymał powiadomienia. Wyślij TXID lub potwierdzenie ponownie.","⌛ Wniosek wygasł.","✅ Płatność potwierdzona.","❌ Administrator odrzucił wniosek.","Wniosek utworzono","✅ Wypłatę potwierdzono","❌ Wypłata odrzucona. Saldo bez zmian."),
@@ -500,7 +500,8 @@ async def start(message: Message,state:FSMContext):
 @dp.message(F.text == "💰 Мой баланс")
 async def balance(message: Message):
     u = ensure_user(message.from_user)
-    await message.answer(f"💰 <b>Ваш баланс</b>\n\n<code>{money(u['balance'])} ₸</code>", reply_markup=balance_kb(locale_for(message.from_user.id)))
+    code=locale_for(message.from_user.id)
+    await message.answer(f"💳 <b>{flow(code,'balance')}</b>\n\n<code>{money(u['balance'])} USDT</code>",reply_markup=balance_kb(code))
 
 @dp.message(F.text == "📜 История")
 async def history(message: Message):
@@ -508,25 +509,29 @@ async def history(message: Message):
     r = db.table("balance_transactions").select("*").eq("user_id", u["id"]).order("created_at", desc=True).limit(10).execute()
     rows = r.data or []
     if not rows:
-        await message.answer("📜 <b>История операций</b>\n\nПока операций нет.", reply_markup=back_kb(locale_for(message.from_user.id)))
+        code=locale_for(message.from_user.id)
+        await message.answer(f"📜 <b>{flow(code,'history')}</b>\n\n{flow(code,'no_history')}",reply_markup=back_kb(code))
         return
-    lines = ["📜 <b>История операций</b>", ""]
+    code=locale_for(message.from_user.id)
+    lines=[f"📜 <b>{flow(code,'history')}</b>",""]
     for x in rows:
         amount = Decimal(str(x["amount"]))
         sign = "+" if amount > 0 else ""
         lines.append(f"{str(x['created_at']).replace('T',' ')[:16]} — {sign}{money(amount)} ₸ — {x['type']}")
-    await message.answer("\n".join(lines), reply_markup=back_kb(locale_for(message.from_user.id)))
+    await message.answer("\n".join(lines),reply_markup=back_kb(code))
 
 @dp.message(F.text == "💳 Реквизиты")
 async def wallets(message: Message):
     rows = db.table("wallets").select("*").eq("is_active", True).order("sort_order").execute().data or []
     if not rows:
-        await message.answer("💳 <b>Реквизиты</b>\n\n⚠️ Активных реквизитов сейчас нет.", reply_markup=back_kb(locale_for(message.from_user.id)))
+        code=locale_for(message.from_user.id)
+        await message.answer(f"💳 <b>{flow(code,'details')}</b>\n\n⚠️ {flow(code,'no_details')}",reply_markup=back_kb(code))
         return
-    text = "💳 <b>Реквизиты для пополнения</b>\n"
+    code=locale_for(message.from_user.id)
+    text=f"💳 <b>{flow(code,'details')}</b>\n"
     for x in rows:
-        text += f"\n<b>{x['title']}</b>\n{x['bank_name']}\n<code>{x['requisites']}</code>\nПолучатель: {x.get('holder_name') or '—'}\n"
-    await message.answer(text, reply_markup=back_kb(locale_for(message.from_user.id)))
+        text += f"\n<b>{x['title']}</b>\n{x['bank_name']}\n<code>{x['requisites']}</code>\n{flow(code,'recipient')}: {x.get('holder_name') or '—'}\n"
+    await message.answer(text,reply_markup=back_kb(code))
 
 @dp.message(F.text == "🌐 Язык")
 async def language(message: Message):
@@ -678,7 +683,7 @@ async def cancel_order(call: CallbackQuery):
         await call.answer("Уже закрыта", show_alert=True)
         return
     db.table("orders").update({"status": "cancelled", "cancelled_at": now(), "cancelled_reason": "Cancelled by user", "updated_at": now()}).eq("id", order_id).execute()
-    await call.message.edit_text(f"❌ Заявка #{o['order_number']} отменена.")
+    await call.message.edit_text(f"❌ Request #{o['order_number']} cancelled.")
     await call.answer()
 
 def valid_tron_address(addr):
@@ -692,7 +697,7 @@ async def withdrawal_address(message:Message,state:FSMContext):
     u=ensure_user(message.from_user)
     if not u: await state.clear(); await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
     bal=Decimal(str(u["balance"]))
-    if bal<THRESHOLD: await state.clear(); await message.answer(f"⚠️ {flow(code,'balance')} changed.",reply_markup=home_kb(code)); return
+    if bal<THRESHOLD: await state.clear(); await message.answer(f"⚠️ {flow(code,'balance')}: {money(bal)} USDT",reply_markup=home_kb(code)); return
     fee=(bal*FEE_RATE).quantize(Decimal("0.01"),rounding=ROUND_DOWN); net=bal-fee
     try:
         wd=db.table("withdrawals").insert({"user_id":u["id"],"amount":float(bal),"fee_amount":float(fee),"net_amount":float(net),"currency":"USDT","destination_address":addr,"status":"pending","note":"Mandatory full withdrawal; 4% fee retained by admin."}).execute().data[0]
