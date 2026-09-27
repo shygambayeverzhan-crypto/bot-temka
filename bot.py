@@ -154,35 +154,59 @@ def password_hash(password,salt):
     return hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,600_000,dklen=32).hex()
 
 
+HOME_COPY = {
+"ru":("Ваш личный финансовый кабинет","Привет","Баланс","Аккаунт активен","Выберите действие ниже.","💰 Внести депозит","💳 Баланс","📤 Вывести средства","📜 История","ℹ️ Помощь","🌐 Язык","⬅️ Главное меню","📋 Скопировать TRC20-адрес"),
+"en":("Your personal finance account","Hello","Balance","Account active","Choose an action below.","💰 Make a deposit","💳 Balance","📤 Withdraw funds","📜 History","ℹ️ Help","🌐 Language","⬅️ Main menu","📋 Copy TRC20 address"),
+"uk":("Ваш особистий фінансовий кабінет","Вітаємо","Баланс","Обліковий запис активний","Виберіть дію нижче.","💰 Поповнити депозит","💳 Баланс","📤 Вивести кошти","📜 Історія","ℹ️ Допомога","🌐 Мова","⬅️ Головне меню","📋 Скопіювати TRC20-адресу"),
+"kk":("Жеке қаржы кабинеті","Сәлем","Баланс","Аккаунт белсенді","Төмендегі әрекетті таңдаңыз.","💰 Депозит енгізу","💳 Баланс","📤 Қаражатты шығару","📜 Тарих","ℹ️ Көмек","🌐 Тіл","⬅️ Басты мәзір","📋 TRC20 мекенжайын көшіру"),
+"pl":("Twoje konto finansowe","Witaj","Saldo","Konto aktywne","Wybierz działanie poniżej.","💰 Wpłać depozyt","💳 Saldo","📤 Wypłać środki","📜 Historia","ℹ️ Pomoc","🌐 Język","⬅️ Menu główne","📋 Kopiuj adres TRC20"),
+"ro":("Contul dvs. financiar","Bună","Sold","Cont activ","Alegeți o acțiune.","💰 Depuneți","💳 Sold","📤 Retrageți fonduri","📜 Istoric","ℹ️ Ajutor","🌐 Limbă","⬅️ Meniul principal","📋 Copiază adresa TRC20"),
+"tr":("Kişisel finans hesabınız","Merhaba","Bakiye","Hesap aktif","Aşağıdan bir işlem seçin.","💰 Yatırma yap","💳 Bakiye","📤 Para çek","📜 Geçmiş","ℹ️ Yardım","🌐 Dil","⬅️ Ana menü","📋 TRC20 adresini kopyala"),
+"es":("Tu cuenta financiera personal","Hola","Saldo","Cuenta activa","Elige una opción.","💰 Depositar","💳 Saldo","📤 Retirar fondos","📜 Historial","ℹ️ Ayuda","🌐 Idioma","⬅️ Menú principal","📋 Copiar dirección TRC20"),
+"de":("Ihr persönliches Finanzkonto","Hallo","Kontostand","Konto aktiv","Wählen Sie eine Aktion.","💰 Einzahlung","💳 Kontostand","📤 Guthaben auszahlen","📜 Verlauf","ℹ️ Hilfe","🌐 Sprache","⬅️ Hauptmenü","📋 TRC20-Adresse kopieren"),
+"ky":("Жеке каржы эсебиңиз","Салам","Баланс","Аккаунт активдүү","Төмөндөн аракетти тандаңыз.","💰 Депозит салуу","💳 Баланс","📤 Каражат чыгаруу","📜 Тарых","ℹ️ Жардам","🌐 Тил","⬅️ Башкы меню","📋 TRC20 дарегин көчүрүү"),
+"ka":("თქვენი პირადი ფინანსური ანგარიში","გამარჯობა","ბალანსი","ანგარიში აქტიურია","აირჩიეთ მოქმედება ქვემოთ.","💰 დეპოზიტის შეტანა","💳 ბალანსი","📤 თანხის გატანა","📜 ისტორია","ℹ️ დახმარება","🌐 ენა","⬅️ მთავარი მენიუ","📋 TRC20 მისამართის კოპირება"),
+"zh":("您的个人财务账户","您好","余额","账户正常","请选择操作。","💰 充值","💳 余额","📤 提现","📜 记录","ℹ️ 帮助","🌐 语言","⬅️ 主菜单","📋 复制 TRC20 地址"),
+"ko":("개인 금융 계정","안녕하세요","잔액","계정 활성","아래에서 작업을 선택하세요.","💰 입금","💳 잔액","📤 출금","📜 내역","ℹ️ 도움말","🌐 언어","⬅️ 메인 메뉴","📋 TRC20 주소 복사"),
+"ar":("حسابك المالي الشخصي","مرحبًا","الرصيد","الحساب نشط","اختر إجراءً أدناه.","💰 إيداع","💳 الرصيد","📤 سحب الأموال","📜 السجل","ℹ️ المساعدة","🌐 اللغة","⬅️ القائمة الرئيسية","📋 نسخ عنوان TRC20"),
+"ja":("あなたの個人金融アカウント","こんにちは","残高","アカウント有効","下から操作を選択してください。","💰 入金","💳 残高","📤 出金","📜 履歴","ℹ️ ヘルプ","🌐 言語","⬅️ メインメニュー","📋 TRC20アドレスをコピー"),
+"fr":("Votre compte financier personnel","Bonjour","Solde","Compte actif","Choisissez une action ci-dessous.","💰 Déposer","💳 Solde","📤 Retirer des fonds","📜 Historique","ℹ️ Aide","🌐 Langue","⬅️ Menu principal","📋 Copier l’adresse TRC20"),
+"pt":("Sua conta financeira pessoal","Olá","Saldo","Conta ativa","Escolha uma ação abaixo.","💰 Depositar","💳 Saldo","📤 Retirar fundos","📜 Histórico","ℹ️ Ajuda","🌐 Idioma","⬅️ Menu principal","📋 Copiar endereço TRC20"),
+"nl":("Uw persoonlijke financiële account","Hallo","Saldo","Account actief","Kies hieronder een actie.","💰 Storten","💳 Saldo","📤 Geld opnemen","📜 Geschiedenis","ℹ️ Help","🌐 Taal","⬅️ Hoofdmenu","📋 TRC20-adres kopiëren"),
+"hi":("आपका व्यक्तिगत वित्त खाता","नमस्ते","शेष राशि","खाता सक्रिय है","नीचे कोई विकल्प चुनें।","💰 जमा करें","💳 शेष राशि","📤 धन निकालें","📜 इतिहास","ℹ️ सहायता","🌐 भाषा","⬅️ मुख्य मेनू","📋 TRC20 पता कॉपी करें"),
+"sk":("Váš osobný finančný účet","Dobrý deň","Zostatok","Účet je aktívny","Vyberte si akciu.","💰 Vložiť vklad","💳 Zostatok","📤 Vybrať prostriedky","📜 História","ℹ️ Pomoc","🌐 Jazyk","⬅️ Hlavné menu","📋 Kopírovať TRC20 adresu"),
+}
 def register_kb():
     return auth_kb("ru")
 
-def home_kb():
+def home_kb(code="ru"):
+    labels=HOME_COPY.get(code,HOME_COPY["ru"])
     b = InlineKeyboardBuilder()
-    b.button(text="💰 Внести депозит", callback_data="menu:deposit")
-    b.button(text="💳 Баланс", callback_data="menu:balance")
-    b.button(text="📤 Вывести средства", callback_data="menu:withdraw")
-    b.button(text="📜 История", callback_data="menu:history")
-    b.button(text="ℹ️ Помощь", callback_data="menu:help")
-    b.button(text="🌐 Язык", callback_data="menu:language")
+    b.button(text=labels[5], callback_data="menu:deposit")
+    b.button(text=labels[6], callback_data="menu:balance")
+    b.button(text=labels[7], callback_data="menu:withdraw")
+    b.button(text=labels[8], callback_data="menu:history")
+    b.button(text=labels[9], callback_data="menu:help")
+    b.button(text=labels[10], callback_data="menu:language")
     b.adjust(1,2,2,1,1); return b.as_markup()
 
-def back_kb():
-    b=InlineKeyboardBuilder(); b.button(text="⬅️ Главное меню",callback_data="menu:home"); return b.as_markup()
+def back_kb(code="ru"):
+    b=InlineKeyboardBuilder(); b.button(text=HOME_COPY.get(code,HOME_COPY["ru"])[11],callback_data="menu:home"); return b.as_markup()
 
-def address_copy_kb(address):
+def address_copy_kb(address,code="ru"):
+    labels=HOME_COPY.get(code,HOME_COPY["ru"])
     b = InlineKeyboardBuilder()
     b.button(
-        text="📋 Скопировать TRC20-адрес",
+        text=labels[12],
         copy_text=CopyTextButton(text=address),
     )
-    b.button(text="⬅️ Главное меню", callback_data="menu:home")
+    b.button(text=labels[11], callback_data="menu:home")
     b.adjust(1, 1)
     return b.as_markup()
 
 
-def balance_kb():
-    b=InlineKeyboardBuilder(); b.button(text="💰 Внести депозит",callback_data="menu:deposit"); b.button(text="📤 Вывести средства",callback_data="menu:withdraw"); b.button(text="⬅️ Главное меню",callback_data="menu:home"); b.adjust(1,2); return b.as_markup()
+def balance_kb(code="ru"):
+    labels=HOME_COPY.get(code,HOME_COPY["ru"]); b=InlineKeyboardBuilder(); b.button(text=labels[5],callback_data="menu:deposit"); b.button(text=labels[7],callback_data="menu:withdraw"); b.button(text=labels[11],callback_data="menu:home"); b.adjust(1,2); return b.as_markup()
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -248,17 +272,11 @@ async def notify_user(tg_id, text):
         logging.exception("notify_user failed")
 
 def home_text(u):
-    name = u.get("first_name") or "друг"
-    balance_value = money(u["balance"])
-    return (
-        f"👋 <b>4% TRADER</b>\n"
-        f"<i>Ваш личный финансовый кабинет</i>\n\n"
-        f"Привет, <b>{name}</b>!\n\n"
-        f"💰 <b>Баланс</b>\n"
-        f"<code>{balance_value} USDT</code>\n\n"
-        f"🟢 <b>Аккаунт активен</b>\n"
-        f"Выберите действие ниже."
-    )
+    code=u.get("language") or "ru"
+    c=HOME_COPY.get(code,HOME_COPY["ru"])
+    name=u.get("first_name") or c[1]
+    balance_value=money(u["balance"])
+    return (f"👋 <b>4% TRADER</b>\n<i>{c[0]}</i>\n\n{c[1]}, <b>{name}</b>!\n\n💰 <b>{c[2]}</b>\n<code>{balance_value} USDT</code>\n\n🟢 <b>{c[3]}</b>\n{c[4]}")
 
 async def show_home(target,tg):
     row=ensure_identity(tg)
@@ -269,7 +287,7 @@ async def show_home(target,tg):
         u=ensure_user(tg)
         if not u: text=auth_screen(code); markup=auth_kb(code)
         elif u.get("is_blocked"): text="⛔ Доступ ограничен."; markup=None
-        else: text=home_text(u); markup=home_kb()
+        else: text=home_text(u); markup=home_kb(code)
     if isinstance(target,CallbackQuery):
         await target.message.edit_text(text,reply_markup=markup); await target.answer()
     else:
@@ -368,7 +386,7 @@ async def start(message: Message,state:FSMContext):
         await message.answer(auth_screen(code),reply_markup=auth_kb(code)); return
     if user.get("is_blocked"):
         await message.answer("⛔ Доступ ограничен."); return
-    await message.answer(home_text(user),reply_markup=home_kb())
+    await message.answer(home_text(user),reply_markup=home_kb(locale_for(call.from_user.id)))
 
 @dp.message(F.text == "💰 Мой баланс")
 async def balance(message: Message):
