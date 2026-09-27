@@ -594,6 +594,7 @@ async def trader_add(message:Message):
     await message.answer(f"✅ Трейдер активирован: @{u.get('username') or u['telegram_id']}.")
 
 async def expiry_loop():
+    pass
 
 def now():
     return datetime.now(timezone.utc).isoformat()
