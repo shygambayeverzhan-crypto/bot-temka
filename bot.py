@@ -208,6 +208,13 @@ ERROR_COPY={
 "hi":{"deposit":"❌ जमा अनुरोध नहीं बनाया जा सका।","withdraw":"❌ निकासी अनुरोध नहीं बनाया जा सका।","cancel":"↩️ <b>कार्रवाई रद्द हुई।</b>","cred_title":"🔐 <b>लॉगिन विवरण</b>","cred_warn":"इस संदेश को आगे न भेजें। लॉगिन के बाद इसे चैट से हटा दें।"},
 "sk":{"deposit":"❌ Nepodarilo sa vytvoriť žiadosť o vklad.","withdraw":"❌ Nepodarilo sa vytvoriť žiadosť o výber.","cancel":"↩️ <b>Operácia zrušená.</b>","cred_title":"🔐 <b>Prihlasovacie údaje</b>","cred_warn":"Túto správu neposielajte ďalej. Po prihlásení ju z chatu odstráňte."}
 }
+CREDENTIAL_LABELS={
+"ru":("Логин","Пароль"),"en":("Login","Password"),"uk":("Логін","Пароль"),"kk":("Логин","Құпиясөз"),
+"pl":("Login","Hasło"),"ro":("Utilizator","Parolă"),"tr":("Kullanıcı adı","Parola"),"es":("Usuario","Contraseña"),
+"de":("Login","Passwort"),"ky":("Логин","Сырсөз"),"ka":("ლოგინი","პაროლი"),"zh":("登录名","密码"),
+"ko":("아이디","비밀번호"),"ar":("اسم المستخدم","كلمة المرور"),"ja":("ログイン名","パスワード"),"fr":("Identifiant","Mot de passe"),
+"pt":("Login","Senha"),"nl":("Login","Wachtwoord"),"hi":("लॉगिन","पासवर्ड"),"sk":("Prihlasovacie meno","Heslo")
+}
 def error_copy(code,key):
     return ERROR_COPY.get(code,ERROR_COPY["en"])[key]
 
@@ -396,7 +403,7 @@ async def start_deposit_flow(message,state,tg):
     if not u: await message.answer(flow(code,"unregistered"),reply_markup=auth_kb(code)); return
     if u["is_blocked"]: await message.answer(flow(code,"restricted"),reply_markup=back_kb(code)); return
     if Decimal(str(u["balance"]))>=THRESHOLD:
-        await message.answer(f"⚠️ <b>{flow(code,'deposit')} unavailable.</b>\n{flow_extra(code,'unavailable')}",reply_markup=back_kb(code)); return
+        await message.answer(f"⚠️ <b>{flow(code,'deposit')}</b>\n{flow_extra(code,'unavailable')}",reply_markup=back_kb(code)); return
     if open_order(u["id"]):
         await message.answer(f"⚠️ {flow_extra(code,'open_deposit')}",reply_markup=back_kb(code)); return
     await state.set_state(Deposit.amount)
@@ -948,7 +955,9 @@ async def issue_login(message:Message):
         logging.exception("credential issue failed target_id=%s",target_id)
         await message.answer("Не удалось выдать логин. Возможно, этот логин уже занят."); return
     try:
-        await bot.send_message(target_id,f"{error_copy(locale_for(target_id),'cred_title')}\nLogin: <code>{login}</code>\nPassword: <code>{password}</code>\n\n{error_copy(locale_for(target_id),'cred_warn')}")
+        target_code=locale_for(target_id)
+        credential_labels=CREDENTIAL_LABELS.get(target_code,CREDENTIAL_LABELS["en"])
+        await bot.send_message(target_id,f"{error_copy(target_code,'cred_title')}\n{credential_labels[0]}: <code>{login}</code>\n{credential_labels[1]}: <code>{password}</code>\n\n{error_copy(target_code,'cred_warn')}")
     except Exception:
         await message.answer("Учётная запись создана, но Telegram не доставил сообщение. Пользователь должен открыть бота; затем повторите /issue_login.")
         return
