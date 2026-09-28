@@ -426,7 +426,12 @@ async def send_fiat_review(receipt_id):
     t=(db.table("p2p_traders").select("*").eq("id",d["trader_id"]).eq("status","active").limit(1).execute().data or [])
     if not t:return False
     tu=(db.table("bot_users").select("telegram_id").eq("id",t[0]["user_id"]).limit(1).execute().data or [])
-    targets={int(tu[0]["telegram_id"])} if tu else set();targets|=admin_ids()
+    targets=admin_ids()
+    group_chat_id=t[0].get("notification_chat_id")
+    if group_chat_id:
+        targets.add(int(group_chat_id))
+    elif tu:
+        targets.add(int(tu[0]["telegram_id"]))
     cap=(f"🧾 <b>Чек #{d['receipt_number']}</b>\nКлиент: @{u.get('username') or '—'}\n"
          f"В чеке: <b>{money(d['requested_amount_kzt'])} KZT</b>\nКурс: 1 KZT = {d['fx_usd_per_kzt']} USDT ({d['fx_rate_date']})\n"
          f"Ожидается: <b>{money(Decimal(str(d['requested_amount_kzt']))*Decimal(str(d['fx_usd_per_kzt'])))} USDT</b>")
@@ -635,6 +640,30 @@ async def trader_add(message:Message):
     if not u:await message.answer("Пользователь должен сначала зарегистрироваться.");return
     db.table("p2p_traders").upsert({"user_id":u["id"],"status":"active","max_volume_usdt":270,"updated_at":now()},on_conflict="user_id").execute()
     await message.answer(f"✅ Трейдер активирован: @{u.get('username') or u['telegram_id']}.")
+
+@dp.message(Command("bind_trader_chat"))
+async def bind_trader_chat(message:Message):
+    if message.chat.type=="private":
+        await message.answer("Добавьте бота в созданную группу и выполните там команду /bind_trader_chat TELEGRAM_ID.")
+        return
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Привязать чат может только администратор.")
+        return
+    parts=(message.text or "").split(maxsplit=1)
+    if len(parts)!=2 or not parts[1].isdigit():
+        await message.answer("Использование: /bind_trader_chat TELEGRAM_ID")
+        return
+    trader=trader_for_user(int(parts[1]))
+    if not trader:
+        await message.answer("Трейдер не найден или не активирован. Сначала выполните /trader_add TELEGRAM_ID.")
+        return
+    try:
+        db.table("p2p_traders").update({"notification_chat_id":message.chat.id,"updated_at":now()}).eq("id",trader["id"]).execute()
+    except Exception:
+        logging.exception("trader group bind failed trader_id=%s chat_id=%s",parts[1],message.chat.id)
+        await message.answer("Не удалось привязать чат. Попробуйте ещё раз.")
+        return
+    await message.answer(f"✅ Группа привязана к трейдеру <code>{parts[1]}</code>. Новые чеки и заявки по его реквизитам будут приходить сюда.")
 
 async def expiry_loop():
     pass
