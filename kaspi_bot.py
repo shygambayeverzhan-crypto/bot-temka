@@ -2,12 +2,15 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
 
 import httpx
 from aiohttp import web
@@ -69,6 +72,24 @@ def amount_value(raw: str | None) -> Decimal | None:
     except (InvalidOperation, ValueError):
         return None
     return value if value.is_finite() and value > 0 else None
+
+
+async def receipt_url_is_accessible(value: str) -> bool:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return False
+    if parsed.port not in (None, 443):
+        return False
+    try:
+        addresses = await asyncio.to_thread(socket.getaddrinfo, parsed.hostname, 443, 0, socket.SOCK_STREAM)
+        if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+            return False
+        async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+            async with client.stream("GET", value, headers={"Range": "bytes=0-0"}) as response:
+                return 200 <= response.status_code < 300
+    except Exception:
+        log.exception("receipt URL preflight failed")
+        return False
 
 
 def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
@@ -277,6 +298,8 @@ async def api_create_receipt(request: web.Request):
             return web.json_response({"error": "external bot file_id cannot be opened by this bot; send an HTTPS file_url"}, status=422)
         if receipt_type == "file_url" and not receipt_value.startswith("https://"):
             return web.json_response({"error": "receipt URL must use HTTPS"}, status=422)
+        if receipt_type == "file_url" and not await receipt_url_is_accessible(receipt_value):
+            return web.json_response({"error": "receipt URL is not publicly accessible over HTTPS"}, status=422)
         if receipt_type == "file_id":
             media_type = receipt.get("media_type", "document")
             if media_type not in {"photo", "document"}:
