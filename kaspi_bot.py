@@ -113,12 +113,16 @@ def require_operator(user_id: int) -> bool:
     return user_id in active_operator_ids()
 
 
-async def notify_admins(text: str, exclude_user_id: int | None = None) -> None:
+async def notify_admins(
+    text: str,
+    exclude_user_id: int | None = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
     for admin_id in ADMIN_IDS:
         if admin_id == exclude_user_id:
             continue
         try:
-            await bot.send_message(admin_id, text)
+            await bot.send_message(admin_id, text, reply_markup=reply_markup)
         except Exception:
             log.exception("could not notify Kaspi admin %s", admin_id)
 
@@ -407,6 +411,7 @@ async def start(message: Message, state: FSMContext):
     username = f"@{html.escape(profile.username)}" if profile.username else "без username"
     await notify_admins(
         f"Запрос на доступ оператора\nИмя: {display_name}\nTelegram: {username}\nID: <code>{user_id}</code>",
+        reply_markup=operator_access_keyboard(user_id),
     )
     await message.answer("Запрос отправлен администратору. После одобрения бот начнёт присылать сюда новые чеки.")
 
