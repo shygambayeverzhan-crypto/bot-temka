@@ -421,7 +421,7 @@ async def receipt_file(message: Message, state: FSMContext):
     }
     try:
         row = await asyncio.to_thread(create_receipt, payload)
-            await send_receipt_to_operators(row)
+        await send_receipt_to_operators(row)
         db.table("kaspi_receipts").update({"operator_notified_at": now_iso()}).eq("id", row["id"]).execute()
     except Exception:
         log.exception("telegram receipt submission failed")
