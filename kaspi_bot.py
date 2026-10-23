@@ -33,7 +33,7 @@ CLIENT_WEBHOOK_URL = os.getenv("CLIENT_WEBHOOK_URL", "").strip()
 CLIENT_WEBHOOK_SECRET = os.getenv("CLIENT_WEBHOOK_SECRET", "").strip()
 
 # Add operator Telegram IDs here when they are ready, for example {123456789}.
-OPERATOR_IDS: set[int] = set()
+OPERATOR_IDS: set[int] = {6575928505}
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing")
