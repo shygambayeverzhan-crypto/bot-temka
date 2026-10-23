@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import html
 import ipaddress
 import json
 import logging
@@ -34,8 +35,9 @@ API_TOKEN = os.getenv("API_TOKEN", "").strip()
 CLIENT_WEBHOOK_URL = os.getenv("CLIENT_WEBHOOK_URL", "").strip()
 CLIENT_WEBHOOK_SECRET = os.getenv("CLIENT_WEBHOOK_SECRET", "").strip()
 
-# Add operator Telegram IDs here when they are ready, for example {123456789}.
-OPERATOR_IDS: set[int] = {6575928505}
+# The owner stays the only admin. Operators request access in Telegram and the
+# admin approves them; approved operators are persisted in Supabase.
+ADMIN_IDS: set[int] = {6575928505}
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing")
@@ -94,8 +96,38 @@ def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def active_operator_ids() -> set[int]:
+    try:
+        rows = db.table("kaspi_operators").select("telegram_id").eq("status", "active").execute().data or []
+        return ADMIN_IDS | {int(row["telegram_id"]) for row in rows}
+    except Exception:
+        log.exception("could not load active Kaspi operators")
+        return set(ADMIN_IDS)
+
+
 def require_operator(user_id: int) -> bool:
-    return user_id in OPERATOR_IDS
+    return user_id in active_operator_ids()
+
+
+async def notify_admins(text: str, exclude_user_id: int | None = None) -> None:
+    for admin_id in ADMIN_IDS:
+        if admin_id == exclude_user_id:
+            continue
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception:
+            log.exception("could not notify Kaspi admin %s", admin_id)
+
+
+def operator_access_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Выдать доступ", callback_data=f"operatoraccess:approve:{user_id}")],
+        [InlineKeyboardButton(text="⛔ Отклонить", callback_data=f"operatoraccess:deny:{user_id}")],
+    ])
 
 
 def fetch_receipt(receipt_id: str) -> dict | None:
@@ -104,8 +136,9 @@ def fetch_receipt(receipt_id: str) -> dict | None:
 
 
 async def send_receipt_to_operators(row: dict, reminder: bool = False) -> bool:
-    if not OPERATOR_IDS:
-        log.warning("receipt %s is saved; OPERATOR_IDS is empty", row["id"])
+    operator_ids = active_operator_ids()
+    if not operator_ids:
+        log.warning("receipt %s is saved; no active operators", row["id"])
         return False
     who = row.get("customer_reference") or str(row.get("telegram_user_id") or "без ссылки")
     caption = (
@@ -117,7 +150,7 @@ async def send_receipt_to_operators(row: dict, reminder: bool = False) -> bool:
     )
     keyboard = receipt_keyboard(row["id"])
     delivered = 0
-    for operator_id in OPERATOR_IDS:
+    for operator_id in operator_ids:
         try:
             if row.get("receipt_type") == "file_id":
                 if row["receipt_value"].startswith("photo:"):
@@ -137,7 +170,7 @@ async def send_receipt_to_operators(row: dict, reminder: bool = False) -> bool:
                 db.table("kaspi_receipts").update({"last_notification_error": str(exc)[:500]}).eq("id", row["id"]).execute()
             except Exception:
                 log.exception("could not record operator notification failure")
-    return delivered == len(OPERATOR_IDS)
+    return delivered == len(operator_ids)
 
 
 def create_receipt(payload: dict) -> dict:
@@ -217,6 +250,18 @@ async def post_decision_effects(receipt_id: str) -> None:
     row = fetch_receipt(receipt_id)
     if not row:
         return
+    operator_id = row.get("operator_id")
+    if row.get("status") in {"confirmed", "rejected"} and operator_id not in ADMIN_IDS:
+        amount = row.get("approved_amount") if row.get("approved_amount") is not None else row.get("amount")
+        details = (
+            f"Решение по чеку <code>{row['id']}</code>\n"
+            f"Статус: <b>{row['status']}</b>\n"
+            f"Сумма: <b>{amount} {row['currency']}</b>\n"
+            f"Оператор Telegram ID: <code>{operator_id}</code>"
+        )
+        if row.get("comment"):
+            details += f"\nКомментарий: {html.escape(str(row['comment'])[:500])}"
+        await notify_admins(details)
     if CLIENT_WEBHOOK_URL and not row.get("webhook_delivered_at"):
         await send_client_webhook(row)
 
@@ -326,10 +371,147 @@ def api_app() -> web.Application:
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
     await state.clear()
-    if require_operator(message.from_user.id):
-        await message.answer("Бот операторской проверки Kaspi. Используйте /queue для очереди и /balance для общего учётного баланса.")
+    user_id = message.from_user.id
+    if is_admin(user_id):
+        await message.answer(
+            "Ты администратор бота. Команды:\n"
+            "/queue - очередь чеков\n"
+            "/balance - общий учётный баланс\n"
+            "/operators - операторы и запросы доступа\n"
+            "/history - последние заявки и решения\n"
+            "/removeoperator ID - отключить оператора"
+        )
+        return
+
+    rows = db.table("kaspi_operators").select("status").eq("telegram_id", user_id).limit(1).execute().data or []
+    status = rows[0]["status"] if rows else None
+    if status == "active":
+        await message.answer("Доступ оператора включён. Уведомления о новых чеках будут приходить сюда.")
+        return
+    if status == "pending":
+        await message.answer("Запрос на доступ уже отправлен администратору. Напишите /start после одобрения.")
+        return
+
+    profile = message.from_user
+    db.table("kaspi_operators").upsert({
+        "telegram_id": user_id,
+        "username": profile.username,
+        "first_name": profile.first_name,
+        "status": "pending",
+        "requested_at": now_iso(),
+        "approved_by": None,
+        "approved_at": None,
+        "updated_at": now_iso(),
+    }, on_conflict="telegram_id").execute()
+    display_name = html.escape(profile.full_name or "Без имени")
+    username = f"@{html.escape(profile.username)}" if profile.username else "без username"
+    await notify_admins(
+        f"Запрос на доступ оператора\nИмя: {display_name}\nTelegram: {username}\nID: <code>{user_id}</code>",
+    )
+    await message.answer("Запрос отправлен администратору. После одобрения бот начнёт присылать сюда новые чеки.")
+
+
+@dp.callback_query(F.data.startswith("operatoraccess:"))
+async def operator_access_decision(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("Только администратор может менять доступ.", show_alert=True)
+        return
+    try:
+        _, action, raw_user_id = call.data.split(":", 2)
+        user_id = int(raw_user_id)
+    except (ValueError, AttributeError):
+        await call.answer("Некорректный запрос.", show_alert=True)
+        return
+    if action == "approve":
+        changed = db.table("kaspi_operators").update({
+            "status": "active", "approved_by": call.from_user.id,
+            "approved_at": now_iso(), "updated_at": now_iso(),
+        }).eq("telegram_id", user_id).eq("status", "pending").select("telegram_id").execute().data or []
+        if not changed:
+            await call.answer("Запрос уже обработан или не найден.", show_alert=True)
+            return
+        try:
+            await bot.send_message(user_id, "Администратор выдал тебе доступ. Теперь сюда будут приходить новые чеки и напоминания.")
+        except Exception:
+            log.exception("operator %s was approved but could not be notified", user_id)
+        await call.message.edit_text(call.message.text + "\n\n✅ Доступ выдан.")
+        await call.answer("Оператор добавлен.")
+    elif action == "deny":
+        changed = db.table("kaspi_operators").update({
+            "status": "disabled", "updated_at": now_iso(),
+        }).eq("telegram_id", user_id).eq("status", "pending").select("telegram_id").execute().data or []
+        if not changed:
+            await call.answer("Запрос уже обработан или не найден.", show_alert=True)
+            return
+        try:
+            await bot.send_message(user_id, "Администратор не одобрил запрос на доступ к операторским уведомлениям.")
+        except Exception:
+            log.exception("could not notify rejected operator request %s", user_id)
+        await call.message.edit_text(call.message.text + "\n\n⛔ Запрос отклонён.")
+        await call.answer("Запрос отклонён.")
     else:
-        await message.answer("Этот бот доступен только операторам.")
+        await call.answer("Неизвестное действие.", show_alert=True)
+
+
+@dp.message(Command("operators"))
+async def operator_list(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда доступна только администратору.")
+        return
+    rows = db.table("kaspi_operators").select("telegram_id,username,first_name,status,requested_at").order("requested_at", desc=True).limit(50).execute().data or []
+    if not rows:
+        await message.answer("Запросов и операторов пока нет.")
+        return
+    labels = {"active": "активен", "pending": "ожидает решения", "disabled": "отключён"}
+    lines = ["<b>Операторы и запросы доступа</b>"]
+    for row in rows:
+        username = f"@{row['username']}" if row.get("username") else (row.get("first_name") or "")
+        lines.append(f"• <code>{row['telegram_id']}</code> {html.escape(username)} — {labels.get(row['status'], row['status'])}")
+    await message.answer("\n".join(lines))
+
+
+@dp.message(Command("removeoperator"))
+async def remove_operator(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда доступна только администратору.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Формат: /removeoperator Telegram_ID")
+        return
+    user_id = int(parts[1])
+    if is_admin(user_id):
+        await message.answer("Нельзя отключить доступ администратора этой командой.")
+        return
+    changed = db.table("kaspi_operators").update({"status": "disabled", "updated_at": now_iso()}).eq("telegram_id", user_id).eq("status", "active").select("telegram_id").execute().data or []
+    if not changed:
+        await message.answer("Активный оператор с таким ID не найден.")
+        return
+    try:
+        await bot.send_message(user_id, "Администратор отключил доступ к операторским уведомлениям.")
+    except Exception:
+        log.exception("could not notify removed operator %s", user_id)
+    await message.answer(f"Оператор <code>{user_id}</code> отключён.")
+
+
+@dp.message(Command("history"))
+async def receipt_history(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("Команда доступна только администратору.")
+        return
+    rows = db.table("kaspi_receipts").select("id,external_receipt_id,amount,approved_amount,currency,status,operator_id,comment,created_at,decided_at").order("created_at", desc=True).limit(12).execute().data or []
+    if not rows:
+        await message.answer("Заявок пока нет.")
+        return
+    lines = ["<b>Последние заявки</b>"]
+    for row in rows:
+        amount = row.get("approved_amount") if row.get("approved_amount") is not None else row.get("amount")
+        external_id = html.escape(str(row.get("external_receipt_id") or row["id"]))
+        created = str(row.get("created_at") or "")[:16].replace("T", " ")
+        operator = f"\nОператор ID: <code>{row['operator_id']}</code>" if row.get("operator_id") else ""
+        comment = f"\nКомментарий: {html.escape(str(row['comment'])[:180])}" if row.get("comment") else ""
+        lines.append(f"\n<b>{external_id}</b> — {row['status']}; {amount} {row['currency']}; {created}{operator}{comment}")
+    await message.answer("\n".join(lines))
 
 
 @dp.message(Command("queue"))
@@ -449,6 +631,7 @@ async def operator_other_amount(call: CallbackQuery, state: FSMContext):
         return
     await state.set_state(OtherAmount.amount)
     await state.update_data(receipt_id=receipt_id, review_message_id=call.message.message_id, review_chat_id=call.message.chat.id)
+    await notify_admins(f"Оператор <code>{call.from_user.id}</code> начал уточнять сумму по чеку <code>{receipt_id}</code>.", exclude_user_id=call.from_user.id)
     await call.message.answer(f"Введите фактически подтверждённую сумму в KZT для чека <code>{receipt_id}</code>:")
     await call.answer()
 
@@ -466,6 +649,10 @@ async def operator_set_other_amount(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.update_data(proposed_amount=str(amount))
     await state.set_state(OtherAmount.confirm)
+    await notify_admins(
+        f"Оператор <code>{message.from_user.id}</code> указал сумму <b>{amount} KZT</b> по чеку <code>{data['receipt_id']}</code>. Ожидается подтверждение.",
+        exclude_user_id=message.from_user.id,
+    )
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подтвердить сумму", callback_data=f"receipt:otherconfirm:{data['receipt_id']}")],
         [InlineKeyboardButton(text="↩️ Вернуться в очередь", callback_data=f"receipt:othercancel:{data['receipt_id']}")],
