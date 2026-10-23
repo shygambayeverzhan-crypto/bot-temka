@@ -48,11 +48,6 @@ bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 
 
-class ReceiptSubmission(StatesGroup):
-    amount = State()
-    receipt = State()
-
-
 class OtherAmount(StatesGroup):
     amount = State()
     confirm = State()
@@ -219,27 +214,10 @@ async def send_client_webhook(row: dict) -> None:
             log.exception("could not record webhook error")
 
 
-async def notify_customer(row: dict) -> None:
-    chat_id = row.get("telegram_user_id")
-    if not chat_id:
-        return
-    approved = row.get("approved_amount")
-    if row["status"] == "confirmed":
-        msg = f"✅ Чек подтверждён. Зачислено: <b>{approved} {row['currency']}</b>."
-    else:
-        reason = row.get("comment")
-        msg = "❌ Чек отклонён." + (f" Причина: {reason}" if reason else " Если считаете, что это ошибка, свяжитесь с поддержкой.")
-    try:
-        await bot.send_message(int(chat_id), msg)
-    except Exception:
-        log.exception("could not notify customer for receipt %s", row["id"])
-
-
 async def post_decision_effects(receipt_id: str) -> None:
     row = fetch_receipt(receipt_id)
     if not row:
         return
-    await notify_customer(row)
     if CLIENT_WEBHOOK_URL and not row.get("webhook_delivered_at"):
         await send_client_webhook(row)
 
@@ -403,64 +381,10 @@ def api_app() -> web.Application:
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer(
-        "Здравствуйте! Здесь можно отправить чек Kaspi на проверку.\n"
-        "Нажмите /receipt, укажите сумму в KZT и приложите фото или файл чека.\n"
-        "Статус заявки придёт сюда после проверки."
-    )
-
-
-@dp.message(Command("receipt"))
-async def receipt_start(message: Message, state: FSMContext):
-    await state.clear()
-    await state.set_state(ReceiptSubmission.amount)
-    await message.answer("Введите сумму по чеку в KZT, например 12500:")
-
-
-@dp.message(ReceiptSubmission.amount)
-async def receipt_amount(message: Message, state: FSMContext):
-    amount = amount_value(message.text)
-    if amount is None:
-        await message.answer("Введите положительную сумму, например 12500:")
-        return
-    await state.update_data(amount=str(amount))
-    await state.set_state(ReceiptSubmission.receipt)
-    await message.answer("Теперь отправьте фото или файл чека Kaspi:")
-
-
-@dp.message(ReceiptSubmission.receipt)
-async def receipt_file(message: Message, state: FSMContext):
-    if message.photo:
-        kind, value = "file_id", "photo:" + message.photo[-1].file_id
-    elif message.document:
-        kind, value = "file_id", "document:" + message.document.file_id
+    if require_operator(message.from_user.id):
+        await message.answer("Бот операторской проверки Kaspi. Используйте /queue для очереди и /balance для общего учётного баланса.")
     else:
-        await message.answer("Нужны фото или файл чека. Отправьте его сообщением:")
-        return
-    data = await state.get_data()
-    key = f"telegram:{message.from_user.id}:{message.message_id}"
-    payload = {
-        "external_receipt_id": key,
-        "idempotency_key": key,
-        "amount": data["amount"],
-        "currency": "KZT",
-        "submitted_at": now_iso(),
-        "customer_reference": f"telegram:{message.from_user.id}",
-        "receipt_type": kind,
-        "receipt_value": value,
-        "telegram_user_id": message.from_user.id,
-        "metadata": {"source": "telegram_bot", "username": message.from_user.username or ""},
-    }
-    try:
-        row = await asyncio.to_thread(create_receipt, payload)
-        await send_receipt_to_operators(row)
-        db.table("kaspi_receipts").update({"operator_notified_at": now_iso()}).eq("id", row["id"]).execute()
-    except Exception:
-        log.exception("telegram receipt submission failed")
-        await message.answer("Не получилось сохранить чек. Попробуйте позже или обратитесь к администратору.")
-        return
-    await state.clear()
-    await message.answer(f"✅ Чек принят. Номер заявки: <code>{row['id']}</code>. Статус: ожидает проверки.")
+        await message.answer("Этот бот доступен только операторам.")
 
 
 @dp.message(Command("queue"))
