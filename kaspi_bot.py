@@ -52,6 +52,11 @@ class ReceiptSubmission(StatesGroup):
 
 class OtherAmount(StatesGroup):
     amount = State()
+    confirm = State()
+
+
+class RejectReason(StatesGroup):
+    reason = State()
 
 
 def now_iso() -> str:
@@ -171,6 +176,7 @@ async def send_client_webhook(row: dict) -> None:
         "status": row["status"],
         "approved_amount": str(row["approved_amount"]) if row.get("approved_amount") is not None else None,
         "currency": row["currency"],
+        "comment": row.get("comment"),
         "decided_at": row.get("decided_at"),
     }
     body = json.dumps(event, separators=(",", ":"), ensure_ascii=False)
@@ -200,7 +206,8 @@ async def notify_customer(row: dict) -> None:
     if row["status"] == "confirmed":
         msg = f"✅ Чек подтверждён. Зачислено: <b>{approved} {row['currency']}</b>."
     else:
-        msg = "❌ Чек отклонён. Если считаете, что это ошибка, свяжитесь с поддержкой."
+        reason = row.get("comment")
+        msg = "❌ Чек отклонён." + (f" Причина: {reason}" if reason else " Если считаете, что это ошибка, свяжитесь с поддержкой.")
     try:
         await bot.send_message(int(chat_id), msg)
     except Exception:
@@ -265,7 +272,9 @@ async def api_create_receipt(request: web.Request):
         receipt_type = receipt.get("type")
         receipt_value = str(receipt.get("value", "")).strip()
         if receipt_type not in {"file_id", "file_url"} or not receipt_value:
-            return web.json_response({"error": "receipt.type must be file_id or file_url and value is required"}, status=400)
+            return web.json_response({"error": "receipt.type must be file_url for external bot files; value is required"}, status=400)
+        if data.get("external_receipt_id") and receipt_type != "file_url":
+            return web.json_response({"error": "external bot file_id cannot be opened by this bot; send an HTTPS file_url"}, status=422)
         if receipt_type == "file_url" and not receipt_value.startswith("https://"):
             return web.json_response({"error": "receipt URL must use HTTPS"}, status=422)
         if receipt_type == "file_id":
@@ -289,7 +298,7 @@ async def api_create_receipt(request: web.Request):
             await send_receipt_to_operators(row)
             db.table("kaspi_receipts").update({"operator_notified_at": now_iso()}).eq("id", row["id"]).execute()
         status = 201 if row.pop("_created", False) else 200
-        return web.json_response({"receipt_id": row["id"], "status": row["status"], "next_reminder_at": row.get("next_reminder_at")}, status=status)
+        return web.json_response({"receipt_id": row["id"], "external_receipt_id": row.get("external_receipt_id"), "status": row["status"], "next_reminder_at": row.get("next_reminder_at")}, status=status)
     except Exception:
         log.exception("API receipt create failed")
         return web.json_response({"error": "could not create receipt"}, status=500)
@@ -301,9 +310,9 @@ async def api_get_receipt(request: web.Request):
         if not row:
             return web.json_response({"error": "not found"}, status=404)
         return web.json_response({
-            "receipt_id": row["id"], "status": row["status"], "submitted_amount": row["amount"],
+            "receipt_id": row["id"], "external_receipt_id": row.get("external_receipt_id"), "status": row["status"], "submitted_amount": row["amount"],
             "approved_amount": row.get("approved_amount"), "currency": row["currency"],
-            "decision": row.get("decision"), "created_at": row["created_at"], "decided_at": row.get("decided_at"),
+            "decision": row.get("decision"), "comment": row.get("comment"), "created_at": row["created_at"], "decided_at": row.get("decided_at"),
         })
     except Exception:
         log.exception("API receipt lookup failed")
@@ -436,7 +445,7 @@ async def operator_queue(message: Message):
     if not require_operator(message.from_user.id):
         await message.answer("Нет доступа к очереди операторов.")
         return
-    rows = db.table("kaspi_receipts").select("*").eq("status", "pending").order("created_at").limit(50).execute().data or []
+    rows = db.table("kaspi_receipts").select("*").in_("status", ["pending", "amount_review"]).order("created_at").limit(50).execute().data or []
     if not rows:
         await message.answer("Очередь чеков пуста.")
         return
@@ -461,7 +470,7 @@ async def operator_confirm(call: CallbackQuery):
         return
     receipt_id = call.data.rsplit(":", 1)[1]
     row = fetch_receipt(receipt_id)
-    if not row:
+    if not row or row["status"] not in {"pending", "amount_review"}:
         await call.answer("Чек не найден.", show_alert=True)
         return
     result = await asyncio.to_thread(decide_receipt, receipt_id, "confirmed", call.from_user.id, Decimal(str(row["amount"])))
@@ -474,7 +483,26 @@ async def operator_confirm(call: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("receipt:reject:"))
-async def operator_reject(call: CallbackQuery):
+async def operator_reject(call: CallbackQuery, state: FSMContext):
+    if not require_operator(call.from_user.id):
+        await call.answer("Нет доступа.", show_alert=True)
+        return
+    receipt_id = call.data.rsplit(":", 1)[1]
+    row = fetch_receipt(receipt_id)
+    if not row or row["status"] not in {"pending", "amount_review"}:
+        await call.answer("Заявка уже обработана или не найдена.", show_alert=True)
+        return
+    await state.set_state(RejectReason.reason)
+    await state.update_data(receipt_id=receipt_id, review_message_id=call.message.message_id, review_chat_id=call.message.chat.id)
+    skip_markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Отклонить без причины", callback_data=f"receipt:rejectskip:{receipt_id}")]
+    ])
+    await call.message.answer(f"Напишите причину отклонения заявки <code>{receipt_id}</code> или нажмите кнопку ниже:", reply_markup=skip_markup)
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("receipt:rejectskip:"))
+async def operator_reject_skip(call: CallbackQuery, state: FSMContext):
     if not require_operator(call.from_user.id):
         await call.answer("Нет доступа.", show_alert=True)
         return
@@ -482,10 +510,35 @@ async def operator_reject(call: CallbackQuery):
     result = await asyncio.to_thread(decide_receipt, receipt_id, "rejected", call.from_user.id)
     if result.get("ok") and not result.get("already_decided"):
         await post_decision_effects(receipt_id)
+        await state.clear()
         await call.answer("Отклонено.")
         await call.message.edit_reply_markup(reply_markup=None)
     else:
         await call.answer("Заявка уже обработана или не найдена.", show_alert=True)
+
+
+@dp.message(RejectReason.reason)
+async def operator_reject_with_reason(message: Message, state: FSMContext):
+    if not require_operator(message.from_user.id):
+        await state.clear()
+        await message.answer("Нет доступа.")
+        return
+    data = await state.get_data()
+    reason = (message.text or "").strip()
+    if not reason:
+        await message.answer("Напишите короткую причину отклонения текстом:")
+        return
+    result = await asyncio.to_thread(decide_receipt, data["receipt_id"], "rejected", message.from_user.id, None, reason[:500])
+    if result.get("ok") and not result.get("already_decided"):
+        await post_decision_effects(data["receipt_id"])
+        await message.answer(f"Заявка {data['receipt_id']} отклонена. Причина сохранена.")
+        try:
+            await bot.edit_message_reply_markup(chat_id=data["review_chat_id"], message_id=data["review_message_id"], reply_markup=None)
+        except Exception:
+            log.exception("could not clear processed receipt buttons")
+    else:
+        await message.answer("Заявка уже обработана или не найдена.")
+    await state.clear()
 
 
 @dp.callback_query(F.data.startswith("receipt:other:"))
@@ -495,7 +548,11 @@ async def operator_other_amount(call: CallbackQuery, state: FSMContext):
         return
     receipt_id = call.data.rsplit(":", 1)[1]
     row = fetch_receipt(receipt_id)
-    if not row or row["status"] != "pending":
+    if not row or row["status"] not in {"pending", "amount_review"}:
+        await call.answer("Заявка уже обработана или не найдена.", show_alert=True)
+        return
+    changed = db.table("kaspi_receipts").update({"status": "amount_review"}).eq("id", receipt_id).in_("status", ["pending", "amount_review"]).select("id").execute().data or []
+    if not changed:
         await call.answer("Заявка уже обработана или не найдена.", show_alert=True)
         return
     await state.set_state(OtherAmount.amount)
@@ -515,17 +572,54 @@ async def operator_set_other_amount(message: Message, state: FSMContext):
         await message.answer("Введите положительную сумму в KZT:")
         return
     data = await state.get_data()
-    result = await asyncio.to_thread(decide_receipt, data["receipt_id"], "confirmed", message.from_user.id, amount, "Confirmed with a different amount")
+    await state.update_data(proposed_amount=str(amount))
+    await state.set_state(OtherAmount.confirm)
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить сумму", callback_data=f"receipt:otherconfirm:{data['receipt_id']}")],
+        [InlineKeyboardButton(text="↩️ Вернуться в очередь", callback_data=f"receipt:othercancel:{data['receipt_id']}")],
+    ])
+    await message.answer(f"Зачислить <b>{amount} KZT</b> по заявке <code>{data['receipt_id']}</code>?", reply_markup=markup)
+
+
+@dp.callback_query(F.data.startswith("receipt:otherconfirm:"))
+async def operator_confirm_other_amount(call: CallbackQuery, state: FSMContext):
+    if not require_operator(call.from_user.id):
+        await call.answer("Нет доступа.", show_alert=True)
+        return
+    data = await state.get_data()
+    receipt_id = call.data.rsplit(":", 1)[1]
+    if data.get("receipt_id") != receipt_id or not data.get("proposed_amount"):
+        await call.answer("Сумма подтверждения устарела. Начните действие заново.", show_alert=True)
+        return
+    amount = Decimal(data["proposed_amount"])
+    result = await asyncio.to_thread(decide_receipt, receipt_id, "confirmed", call.from_user.id, amount, "Confirmed with a different amount")
     if result.get("ok") and not result.get("already_decided"):
-        await post_decision_effects(data["receipt_id"])
-        await message.answer(f"✅ Заявка {data['receipt_id']} подтверждена на {amount} KZT.")
+        await post_decision_effects(receipt_id)
+        await call.answer("Сумма подтверждена.")
+        await call.message.edit_reply_markup(reply_markup=None)
         try:
             await bot.edit_message_reply_markup(chat_id=data["review_chat_id"], message_id=data["review_message_id"], reply_markup=None)
         except Exception:
             log.exception("could not clear processed receipt buttons")
     else:
-        await message.answer("Заявка уже обработана или не найдена.")
+        await call.answer("Заявка уже обработана или не найдена.", show_alert=True)
     await state.clear()
+
+
+@dp.callback_query(F.data.startswith("receipt:othercancel:"))
+async def operator_cancel_other_amount(call: CallbackQuery, state: FSMContext):
+    if not require_operator(call.from_user.id):
+        await call.answer("Нет доступа.", show_alert=True)
+        return
+    data = await state.get_data()
+    receipt_id = call.data.rsplit(":", 1)[1]
+    if data.get("receipt_id") == receipt_id:
+        db.table("kaspi_receipts").update({"status": "pending"}).eq("id", receipt_id).eq("status", "amount_review").execute()
+        await state.clear()
+        await call.message.edit_reply_markup(reply_markup=None)
+        await call.answer("Заявка осталась в очереди.")
+    else:
+        await call.answer("Сессия устарела. Заявка доступна в очереди.", show_alert=True)
 
 
 async def main():
