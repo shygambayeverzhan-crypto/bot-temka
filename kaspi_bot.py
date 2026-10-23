@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import hashlib
 import hmac
 import ipaddress
@@ -267,24 +266,20 @@ async def api_create_receipt(request: web.Request):
         idempotency_key = request.headers.get("Idempotency-Key", "").strip()
         if not idempotency_key:
             return web.json_response({"error": "Idempotency-Key header is required"}, status=400)
+        external_receipt_id = str(data.get("external_receipt_id", "")).strip()
+        if not external_receipt_id:
+            return web.json_response({"error": "external_receipt_id is required"}, status=400)
         receipt = data.get("receipt") or {}
         receipt_type = receipt.get("type")
         receipt_value = str(receipt.get("value", "")).strip()
-        if receipt_type not in {"file_id", "file_url"} or not receipt_value:
-            return web.json_response({"error": "receipt.type must be file_url for external bot files; value is required"}, status=400)
-        if data.get("external_receipt_id") and receipt_type != "file_url":
-            return web.json_response({"error": "external bot file_id cannot be opened by this bot; send an HTTPS file_url"}, status=422)
-        if receipt_type == "file_url" and not receipt_value.startswith("https://"):
+        if receipt_type != "file_url" or not receipt_value:
+            return web.json_response({"error": "receipt.type must be file_url and value is required"}, status=400)
+        if not receipt_value.startswith("https://"):
             return web.json_response({"error": "receipt URL must use HTTPS"}, status=422)
-        if receipt_type == "file_url" and not await receipt_url_is_accessible(receipt_value):
+        if not await receipt_url_is_accessible(receipt_value):
             return web.json_response({"error": "receipt URL is not publicly accessible over HTTPS"}, status=422)
-        if receipt_type == "file_id":
-            media_type = receipt.get("media_type", "document")
-            if media_type not in {"photo", "document"}:
-                return web.json_response({"error": "receipt.media_type must be photo or document"}, status=422)
-            receipt_value = f"{media_type}:{receipt_value}"
         payload = {
-            "external_receipt_id": data.get("external_receipt_id"),
+            "external_receipt_id": external_receipt_id,
             "idempotency_key": idempotency_key,
             "amount": str(amount),
             "currency": "KZT",
@@ -320,61 +315,11 @@ async def api_get_receipt(request: web.Request):
         return web.json_response({"error": "could not get receipt"}, status=500)
 
 
-async def api_decide_receipt(request: web.Request):
-    try:
-        data = await request.json()
-        decision = data.get("decision")
-        operator_id = int(data.get("operator_id", 0))
-        if decision not in {"confirmed", "rejected"} or not require_operator(operator_id):
-            return web.json_response({"error": "invalid decision or operator"}, status=422)
-        approved = amount_value(str(data.get("approved_amount", ""))) if decision == "confirmed" else None
-        if decision == "confirmed" and approved is None:
-            return web.json_response({"error": "approved_amount must be positive"}, status=422)
-        result = await asyncio.to_thread(decide_receipt, request.match_info["receipt_id"], decision, operator_id, approved, str(data.get("comment") or ""))
-        if result.get("ok") and not result.get("already_decided"):
-            await post_decision_effects(request.match_info["receipt_id"])
-        code = 404 if result.get("error") == "not_found" else 409 if result.get("already_decided") else 422 if not result.get("ok") else 200
-        return web.json_response(result, status=code)
-    except Exception:
-        log.exception("API receipt decision failed")
-        return web.json_response({"error": "could not decide receipt"}, status=500)
-
-
-async def api_balance(_request: web.Request):
-    try:
-        result = db.rpc("kaspi_balance_summary").execute().data
-        row = result[0] if isinstance(result, list) and result else result
-        return web.json_response(row or {"currency": "KZT", "confirmed_total": 0, "updated_at": None, "balance_type": "internal_ledger"})
-    except Exception:
-        log.exception("API balance lookup failed")
-        return web.json_response({"error": "could not get balance"}, status=500)
-
-
-async def api_transactions(request: web.Request):
-    try:
-        limit = max(1, min(int(request.query.get("limit", "50")), 100))
-        query = db.table("kaspi_balance_transactions").select("*").order("created_at", desc=True).limit(limit)
-        cursor = request.query.get("cursor")
-        if cursor:
-            raw = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode())
-            created_at, transaction_id = raw["created_at"], raw["id"]
-            query = query.or_(f"created_at.lt.{created_at},and(created_at.eq.{created_at},id.lt.{transaction_id})")
-        rows = query.execute().data or []
-        next_cursor = base64.urlsafe_b64encode(json.dumps({"created_at": rows[-1]["created_at"], "id": rows[-1]["id"]}).encode()).decode().rstrip("=") if len(rows) == limit else None
-        return web.json_response({"items": rows, "next_cursor": next_cursor})
-    except Exception:
-        log.exception("API transaction history failed")
-        return web.json_response({"error": "could not get transactions"}, status=500)
-
-
 def api_app() -> web.Application:
     app = web.Application(middlewares=[api_auth_middleware], client_max_size=1024 * 1024)
     app.router.add_get("/health", health)
     app.router.add_post("/api/v1/receipts", api_create_receipt)
     app.router.add_get("/api/v1/receipts/{receipt_id}", api_get_receipt)
-    app.router.add_post("/api/v1/receipts/{receipt_id}/decision", api_decide_receipt)
-    app.router.add_get("/api/v1/balance", api_balance)
-    app.router.add_get("/api/v1/balance/transactions", api_transactions)
     return app
 
 

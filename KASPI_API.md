@@ -8,7 +8,7 @@ Base URL: `https://telegram-payment-bot-v2-production.up.railway.app/api/v1`. Al
 
 `POST /receipts`
 
-Required header: `Idempotency-Key: <unique request key>`. Send the client's stable unique request number in `external_receipt_id`. Retries with the same key return the same application.
+Required headers: `Authorization: Bearer <API_TOKEN>` and `Idempotency-Key: <unique request key>`. `external_receipt_id` is required and must be the client's stable unique request number. Retries with the same key return the same application.
 
 ```json
 {
@@ -25,7 +25,7 @@ Required header: `Idempotency-Key: <unique request key>`. Send the client's stab
 }
 ```
 
-The file URL must be HTTPS and remain accessible to operators while the application is pending. Telegram `file_id` values belong to the bot that received the file, so a file ID from another Telegram bot cannot be forwarded by this service. A `file_id` is supported only for receipts collected directly by bot №2.
+The file URL must be HTTPS and remain accessible to operators while the application is pending. A protected HTTPS URL is required because Telegram file IDs from another bot cannot be opened by bot №2.
 
 The API returns `201` for a new application and `200` for a retry. The response includes the internal `receipt_id`, the caller's `external_receipt_id`, status, and next reminder time.
 
@@ -48,12 +48,7 @@ Operators receive a shared queue in Telegram with **Confirm**, **Reject**, and *
 
 Only the Telegram IDs in `OPERATOR_IDS` can process receipts. Each operator must open bot №2 and press Start once so Telegram allows the bot to message them.
 
-## Balance
-
-- `GET /balance` returns the confirmed total in KZT.
-- `GET /balance/transactions?limit=50&cursor=<optional>` returns ledger history.
-
-This is an internal accounting balance, not a live Kaspi bank balance.
+The API token is for receipt submission and status lookup. Decisions are made only by authorized operators in Telegram. The shared balance is available to operators with `/balance`; it is an internal accounting balance, not a live Kaspi bank balance.
 
 ## Health
 
