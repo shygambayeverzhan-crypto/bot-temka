@@ -11,7 +11,7 @@ create table if not exists public.kaspi_receipts (
     receipt_value text not null,
     telegram_user_id bigint,
     metadata jsonb not null default '{}'::jsonb,
-    status text not null default 'pending' check (status in ('pending', 'confirmed', 'rejected')),
+    status text not null default 'pending' check (status in ('pending', 'amount_review', 'confirmed', 'rejected')),
     decision text check (decision is null or decision in ('confirmed', 'rejected')),
     operator_id bigint,
     comment text,
@@ -127,7 +127,7 @@ begin
     if not found then
         return jsonb_build_object('ok', false, 'error', 'not_found');
     end if;
-    if v_receipt.status <> 'pending' then
+    if v_receipt.status not in ('pending', 'amount_review') then
         return jsonb_build_object('ok', true, 'already_decided', true, 'receipt_id', v_receipt.id, 'status', v_receipt.status);
     end if;
 
@@ -174,7 +174,7 @@ as $$
     with due as (
         select id
           from public.kaspi_receipts
-         where status = 'pending' and next_reminder_at <= now()
+         where status in ('pending', 'amount_review') and next_reminder_at <= now()
          order by next_reminder_at
          for update skip locked
          limit greatest(1, least(coalesce(p_limit, 50), 100))
