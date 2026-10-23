@@ -1,3 +1,4 @@
+
 import asyncio
 import hashlib
 import hmac
@@ -393,7 +394,14 @@ async def start(message: Message, state: FSMContext):
         await message.answer("Доступ оператора включён. Уведомления о новых чеках будут приходить сюда.")
         return
     if status == "pending":
-        await message.answer("Запрос на доступ уже отправлен администратору. Напишите /start после одобрения.")
+        profile = message.from_user
+        display_name = html.escape(profile.full_name or "Без имени")
+        username = f"@{html.escape(profile.username)}" if profile.username else "без username"
+        await notify_admins(
+            f"Повторный запрос на доступ оператора\nИмя: {display_name}\nTelegram: {username}\nID: <code>{user_id}</code>",
+            reply_markup=operator_access_keyboard(user_id),
+        )
+        await message.answer("Повторно отправил запрос администратору. Дождитесь решения.")
         return
 
     profile = message.from_user
